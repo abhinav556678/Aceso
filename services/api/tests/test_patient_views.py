@@ -3,14 +3,17 @@ from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from aceso.main import app
 
-@patch('aceso.routes.patient.pool')
-def test_patient_timeline(mock_pool):
-    mock_conn = MagicMock()
-    mock_pool.connection.return_value.__enter__.return_value = mock_conn
-    mock_cur = MagicMock()
-    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    
-    mock_cur.fetchall.return_value = [
+@pytest.fixture
+def mock_db():
+    with patch('aceso.routes.patient.pool') as mock_pool:
+        mock_conn = MagicMock()
+        mock_pool.connection.return_value.__enter__.return_value = mock_conn
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        yield mock_cur
+
+def test_patient_timeline(mock_db):
+    mock_db.fetchall.return_value = [
         ("evt1", None, "fact", "lab_result", "HbA1c", "HbA1c is 7.2", 7.2, "%", "verified")
     ]
     
@@ -21,16 +24,10 @@ def test_patient_timeline(mock_pool):
         assert "events" in data
         assert len(data["events"]) == 1
 
-@patch('aceso.routes.patient.pool')
-def test_patient_trends(mock_pool):
-    mock_conn = MagicMock()
-    mock_pool.connection.return_value.__enter__.return_value = mock_conn
-    mock_cur = MagicMock()
-    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    
-    mock_cur.fetchall.side_effect = [
+def test_patient_trends(mock_db):
+    mock_db.fetchall.side_effect = [
         [(None, 7.2, "%")], # labs
-        [(None, "Metformin", "verified")] # meds
+        [(None, "Metformin", "verified", {"duration_days": 30})] # meds
     ]
     
     with TestClient(app) as client:
@@ -39,16 +36,11 @@ def test_patient_trends(mock_pool):
         data = response.json()
         assert len(data["labs"]) == 1
         assert len(data["meds"]) == 1
+        assert data["meds"][0]["end_date"] is None # start_date is None, so end_date is None
 
-@patch('aceso.routes.patient.pool')
-def test_patient_summary(mock_pool):
-    mock_conn = MagicMock()
-    mock_pool.connection.return_value.__enter__.return_value = mock_conn
-    mock_cur = MagicMock()
-    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    
-    mock_cur.fetchone.return_value = ("Test Patient", None, "M")
-    mock_cur.fetchall.side_effect = [
+def test_patient_summary(mock_db):
+    mock_db.fetchone.return_value = ("Test Patient", None, "M")
+    mock_db.fetchall.side_effect = [
         [("Diabetes",)], # conditions
         [("Metformin",)], # meds
         [("Penicillin",)] # allergies
