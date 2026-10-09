@@ -67,21 +67,22 @@ export default function ConsultRecorder({ disabled, onRecorded }: { disabled: bo
 
   if (!recording) {
     return (
-      <span>
+      <div className="flex-1 min-w-40">
         <button onClick={start} disabled={disabled}
-          className="border border-red-700 text-red-700 bg-white font-medium py-2 px-4 text-sm hover:bg-red-50 disabled:opacity-40">
+          className="w-full border border-red-700 text-red-700 bg-white font-medium py-2 px-4 text-sm hover:bg-red-50 disabled:opacity-40">
           ● Record consult
         </button>
-        {error && <span role="alert" className="block text-sm text-red-700 mt-1">{error}</span>}
-      </span>
+        {error && <p role="alert" className="text-sm text-red-700 mt-1">{error}</p>}
+      </div>
     )
   }
   return (
-    <span className="inline-flex flex-wrap items-center gap-2 border border-red-700 bg-red-50 px-3 py-1.5 text-sm" role="status">
+    <div className="basis-full flex flex-wrap items-center gap-2 border border-red-700 bg-red-50 px-3 py-2 text-sm" role="status">
       <span className="font-semibold text-red-700 animate-pulse">● Recording</span>
-      <span className="font-mono">{fmtClock(elapsed)}</span>
+      <span className="font-mono mr-auto">{fmtClock(elapsed)}</span>
       <button onClick={() => finish(true)} className="bg-red-700 text-white font-medium px-3 py-1 hover:bg-red-800">■ Stop &amp; transcribe</button>
       <button onClick={() => finish(false)} className="border border-slate-400 bg-white px-3 py-1 hover:bg-slate-100">Discard</button>
-    </span>
+      <p className="basis-full text-xs text-slate-600">Audio is sent for transcription as recorded; only its transcript is redacted.</p>
+    </div>
   )
 }

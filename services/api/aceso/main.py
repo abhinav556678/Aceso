@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from aceso.config import settings
 from aceso.db import close_pool, open_pool
-from aceso.routes import admin, export, ingest, patients, review
+from aceso.routes import admin, export, ingest, patients, review, session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,9 +46,10 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.web_origin.split(",")],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,  # the session cookie
 )
 
-for module in (patients, ingest, review, export, admin):
+for module in (session, patients, ingest, review, export, admin):
     app.include_router(module.router, prefix="/api")
 
 

@@ -195,3 +195,23 @@ def test_photographed_report_is_read_by_ocr_and_a_smudged_row_is_not_guessed(cli
     # the name printed on the photo is not this patient's registered name, and still does not leave
     sent = client.get(f"/api/jobs/{job['id']}/privacy", headers=DOCTOR).json()["calls"][0]["user_message"]
     assert "Meena" not in sent and "Rajan" not in sent and "ACE-0001" not in sent and "Creatinine" in sent
+
+
+def test_sign_in_sets_a_session_and_wrong_passwords_are_refused(client, monkeypatch):
+    from aceso.config import settings
+    monkeypatch.setattr(settings, "nurse_password", "only-for-this-test")
+    monkeypatch.setattr(settings, "demo_role_header", False)  # as in the real app: the session is the only way in
+    assert client.get("/api/patients", headers=NURSE).status_code == 401
+    assert client.post("/api/login", json={"username": "nurse", "password": "wrong"}).status_code == 401
+    assert client.post("/api/login", json={"username": "doctor", "password": ""}).status_code == 401  # no password set
+    try:
+        signed_in = client.post("/api/login", json={"username": "Nurse", "password": "only-for-this-test"})
+        assert signed_in.status_code == 200 and signed_in.json()["role"] == "nurse"
+        assert client.get("/api/session").json()["role"] == "nurse"
+        assert client.get("/api/patients").status_code == 200
+        assert client.get("/api/admin/audit").status_code == 403
+        client.cookies.set("aceso_session", signed_in.cookies["aceso_session"].replace("nurse", "admin"))
+        assert client.get("/api/admin/audit").status_code == 401  # a cookie edited to another role is rejected
+    finally:
+        client.cookies.clear()
+    assert client.get("/api/patients").status_code == 401

@@ -35,7 +35,7 @@ function DocumentSource({ fact }: { fact: any }) {
         <img src={fileUrl(`/documents/${fact.document_id}/pages/${fact.page_no}.png`)} alt={`Page ${fact.page_no} of ${fact.document_name}`} className="w-full block" />
         {box && (
           <div
-            className="absolute border-2 border-red-600 bg-red-500/20 animate-pulse"
+            className="absolute border-2 border-red-600 bg-red-500/20"
             style={{
               left: `${(box.x - 0.006) * 100}%`, top: `${(box.y - 0.004) * 100}%`,
               width: `${(box.w + 0.012) * 100}%`, height: `${(box.h + 0.008) * 100}%`,

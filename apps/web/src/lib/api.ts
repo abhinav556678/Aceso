@@ -3,16 +3,31 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export type Role = 'doctor' | 'nurse' | 'admin'
-const ROLE_KEY = 'aceso.role'
+export type Session = { name: string; role: Role }
+const SESSION_KEY = 'aceso.session'
 
-export function getRole(): Role | null {
+// What the page shows about who is signed in. The server decides access from its own
+// session cookie; this copy only saves a round trip when drawing menus and buttons.
+export function getSession(): Session | null {
   if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(ROLE_KEY) as Role | null
+  try {
+    return JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null')
+  } catch {
+    return null
+  }
 }
 
-export function setRole(role: Role | null) {
-  if (role) window.localStorage.setItem(ROLE_KEY, role)
-  else window.localStorage.removeItem(ROLE_KEY)
+export function setSession(session: Session | null) {
+  if (session) window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  else window.localStorage.removeItem(SESSION_KEY)
+}
+
+export const getRole = (): Role | null => getSession()?.role ?? null
+
+export async function signOut() {
+  await fetch(`${API_URL}/api/logout`, { method: 'POST', credentials: 'include' }).catch(() => {})
+  setSession(null)
+  window.location.href = '/'
 }
 
 export class ApiError extends Error {
@@ -27,16 +42,19 @@ export class ApiError extends Error {
 
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
-  headers.set('X-Demo-Role', getRole() || '')
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   let response: Response
   try {
-    response = await fetch(`${API_URL}/api${path}`, { ...init, headers })
+    response = await fetch(`${API_URL}/api${path}`, { ...init, headers, credentials: 'include' })
   } catch {
     throw new ApiError(0, `Cannot reach the API at ${API_URL}. Is the backend running?`)
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
+    if (response.status === 401 && path !== '/login' && window.location.pathname !== '/') {
+      setSession(null)  // the session ended: back to the sign-in page
+      window.location.href = '/'
+    }
     const detail = body.detail
     if (Array.isArray(detail)) throw new ApiError(response.status, detail.map((d: any) => d.msg).join('; '))
     if (detail && typeof detail === 'object') throw new ApiError(response.status, detail.message, detail.blockers || [])
@@ -48,11 +66,8 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
 export const post = <T = any>(path: string, body?: unknown) =>
   api<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 
-/** URL for things the browser loads by itself (images, audio, new tabs). */
-export function fileUrl(path: string): string {
-  const join = path.includes('?') ? '&' : '?'
-  return `${API_URL}/api${path}${join}as=${getRole() || ''}`
-}
+/** URL for things the browser loads by itself (images, audio, new tabs); the session cookie goes with them. */
+export const fileUrl = (path: string): string => `${API_URL}/api${path}`
 
 export const fmtDate = (value?: string | null) =>
   value ? new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'

@@ -24,6 +24,13 @@ class Settings(BaseSettings):
 
     web_origin: str = "http://localhost:3000"
 
+    # sign-in: one account per role (usernames doctor / nurse / admin). An empty password disables the account.
+    doctor_password: str = ""
+    nurse_password: str = ""
+    admin_password: str = ""
+    session_secret: str = ""            # signs the session cookie; random per start if empty
+    demo_role_header: bool = False      # accept "X-Demo-Role: doctor" instead of a session (tests and scripts only)
+
     def database_url(self) -> str:
         """Supabase if configured, else the embedded local Postgres (scripts/local_db.py)."""
         if self.supabase_db_url.strip():

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import TopBar from '../../components/TopBar'
 import { api, fmtDate, getRole, Role } from '../../lib/api'
 
 export default function PatientsList() {
@@ -16,15 +17,11 @@ export default function PatientsList() {
   }, [])
 
   return (
-    <main className="min-h-screen p-8">
+    <div className="min-h-screen flex flex-col">
+      <TopBar />
+      <main className="p-8">
       <div className="max-w-5xl mx-auto">
-        <header className="mb-6 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Patients</h1>
-          <nav className="flex gap-4 text-sm">
-            {role === 'admin' && <Link href="/admin" className="text-blue-700 hover:underline">Audit log</Link>}
-            <Link href="/" className="text-blue-700 hover:underline">Switch role{role ? ` (${role})` : ''}</Link>
-          </nav>
-        </header>
+        <h1 className="text-2xl font-semibold mb-6">Patients</h1>
 
         {error && <p role="alert" className="mb-4 border border-red-300 bg-red-50 text-red-800 p-3">{error}</p>}
         {!data && !error && <p className="text-slate-500">Loading patients…</p>}
@@ -46,7 +43,7 @@ export default function PatientsList() {
         {data && (
           <div className="bg-white border border-slate-200 overflow-hidden">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-100 text-slate-700">
+              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide border-b border-slate-200">
                 <tr>
                   <th className="p-3">MRN</th><th className="p-3">Name</th><th className="p-3">Age / Sex</th>
                   {role !== 'admin' && <th className="p-3">Needs attention</th>}
@@ -79,6 +76,7 @@ export default function PatientsList() {
           </div>
         )}
       </div>
-    </main>
+      </main>
+    </div>
   )
 }

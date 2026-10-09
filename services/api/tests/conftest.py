@@ -32,6 +32,7 @@ def database(tmp_path_factory):
     # settings may already be loaded (test collection imports aceso), so point it here explicitly
     from aceso.config import settings
     settings.supabase_db_url = url
+    settings.demo_role_header = True  # tests name the role per request instead of signing in
     setup =subprocess.run([sys.executable, str(ROOT / "scripts" / "setup_db.py"), "--s1-labs-preloaded"],
                            capture_output=True, text=True, env=os.environ.copy())
     assert setup.returncode == 0, setup.stdout + setup.stderr

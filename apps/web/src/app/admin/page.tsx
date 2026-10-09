@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import PrivacyReceipt, { RedactionTryout } from '../../components/PrivacyReceipt'
+import TopBar from '../../components/TopBar'
 import { api, post } from '../../lib/api'
 
 export default function AuditLog() {
@@ -21,15 +21,11 @@ export default function AuditLog() {
   const rows = data?.rows.filter((r: any) => !filter || `${r.action} ${r.actor_label} ${r.mrn}`.toLowerCase().includes(filter.toLowerCase())) || []
 
   return (
-    <main className="min-h-screen p-8">
+    <div className="min-h-screen flex flex-col">
+      <TopBar />
+      <main className="p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="mb-6 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Audit log</h1>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/patients" className="text-blue-700 hover:underline">Patients</Link>
-            <Link href="/" className="text-blue-700 hover:underline">Switch role</Link>
-          </nav>
-        </header>
+        <h1 className="text-2xl font-semibold mb-6">Audit log</h1>
 
         {error && <p role="alert" className="mb-4 border border-red-300 bg-red-50 text-red-800 p-3">{error}</p>}
         {status && (
@@ -84,7 +80,8 @@ export default function AuditLog() {
           </>
         )}
       </div>
+      </main>
       {receiptJob && <PrivacyReceipt key={receiptJob} jobId={receiptJob} onClose={() => setReceiptJob(null)} />}
-    </main>
+    </div>
   )
 }

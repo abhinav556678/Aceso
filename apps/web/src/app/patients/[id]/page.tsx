@@ -7,6 +7,7 @@ import AlertDrawer, { SEVERITY } from '../../../components/AlertDrawer'
 import ConsultRecorder from '../../../components/ConsultRecorder'
 import PrivacyReceipt from '../../../components/PrivacyReceipt'
 import SourceViewer, { ScanReview } from '../../../components/SourceViewer'
+import TopBar from '../../../components/TopBar'
 import Trends from '../../../components/Trends'
 import { api, ApiError, fileUrl, fmtDate, getRole, post, REASONS } from '../../../lib/api'
 
@@ -118,38 +119,43 @@ function PatientChart() {
   const { patient, encounter, note } = chart
   const signed = encounter?.status === 'signed'
   const openAlert = chart.alerts.find((a: any) => a.id === openAlertId)
+  const sourceOpen = Boolean(derived.selected || scanDoc)
 
   const factCard = (fact: any) => {
     const state = STATE[fact.state] || STATE.extracted
     const denied = fact.assertion === 'denied'
     const reviewable = fact.state === 'extracted' || fact.state === 'verified'
+    const source = fact.source === 'document' ? `${fact.document_name || 'document'} p.${fact.page_no}` : fact.source === 'audio' ? 'consult' : 'computed'
     return (
       <div
         key={fact.id}
         onClick={() => setSelectedId(fact.id)}
-        className={` border bg-white p-3 cursor-pointer ${selectedId === fact.id ? 'border-blue-600' : 'border-slate-200 hover:border-slate-400'}`}
+        className={`bg-white border border-l-4 p-4 cursor-pointer ${selectedId === fact.id ? 'border-blue-600 ring-1 ring-blue-600' : 'border-slate-200 hover:border-slate-400'}`}
+        style={{ borderLeftColor: state.color }}
       >
-        <div className="flex justify-between items-start gap-2">
-          <p className={`font-semibold ${fact.state === 'rejected' ? 'line-through text-slate-500' : ''}`}>
-            {denied && <span className="text-slate-600 font-normal">Denied: </span>}
-            {fact.assertion === 'uncertain' && <span className="text-slate-600 font-normal">Uncertain: </span>}
-            {fact.display} <span className="font-mono font-normal">{factValue(fact)}</span>
-          </p>
-          <span className="text-xs whitespace-nowrap font-semibold" style={{ color: state.color }}>{state.icon} {state.label}</span>
+        <div className="flex justify-between items-center gap-2 text-xs">
+          <span className="uppercase tracking-wide text-slate-500">{fact.fact_type.replace('_', ' ')}</span>
+          <span className="whitespace-nowrap font-semibold" style={{ color: state.color }}>{state.icon} {state.label}</span>
         </div>
-        <p className="text-xs text-slate-500 mt-0.5">
-          {fact.fact_type.replace('_', ' ')} · {fact.source === 'document' ? `${fact.document_name || 'document'} p.${fact.page_no}` : fact.source === 'audio' ? 'consult' : 'computed'}
-          {' · '}{fmtDate(fact.effective_at)}{fact.confidence != null && fact.source !== 'manual' ? ` · confidence ${Math.round(fact.confidence * 100)}%` : ''}
+        <p className={`mt-1 text-base font-semibold leading-snug ${fact.state === 'rejected' ? 'line-through text-slate-500' : ''}`}>
+          {denied && <span className="text-slate-600 font-normal">Denied: </span>}
+          {fact.assertion === 'uncertain' && <span className="text-slate-600 font-normal">Uncertain: </span>}
+          {fact.display} <span className="font-mono font-normal">{factValue(fact)}</span>
         </p>
-        {fact.raw_text && fact.source !== 'manual' && <p className="text-sm text-slate-700 mt-1">“{fact.raw_text}”</p>}
-        {fact.attention_reasons?.map((reason: string) => (
-          <p key={reason} className="text-sm mt-1" style={{ color: 'var(--state-extracted)' }}>◔ {REASONS[reason] || reason}</p>
-        ))}
-        {derived.flagged.has(fact.id) && <p className="text-sm mt-1 font-semibold" style={{ color: 'var(--sev-critical)' }}>Involved in an open safety alert</p>}
+        <p className="text-xs text-slate-500 mt-1">
+          {source} · {fmtDate(fact.effective_at)}{fact.confidence != null && fact.confidence < 0.9 && fact.source !== 'manual' ? ` · confidence ${Math.round(fact.confidence * 100)}%` : ''}
+        </p>
+        {fact.raw_text && fact.source !== 'manual' && <p className="text-sm text-slate-700 mt-2 border-l-2 border-slate-200 pl-2">“{fact.raw_text}”</p>}
+        {fact.attention_reasons?.length > 0 && (
+          <ul className="mt-2 bg-amber-50 border border-amber-200 px-2 py-1.5 text-sm space-y-1" style={{ color: 'var(--state-extracted)' }}>
+            {fact.attention_reasons.map((reason: string) => <li key={reason}>◔ {REASONS[reason] || reason}</li>)}
+          </ul>
+        )}
+        {derived.flagged.has(fact.id) && <p className="text-sm mt-2 font-semibold" style={{ color: 'var(--sev-critical)' }}>Involved in an open safety alert</p>}
         {reviewable && !signed && (
-          <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-            {isDoctor && <button onClick={() => run(() => post(`/facts/${fact.id}/confirm`))} className="text-sm bg-green-700 text-white px-3 py-1 hover:bg-green-800">Confirm</button>}
-            <button onClick={() => run(() => post(`/facts/${fact.id}/reject`))} className="text-sm border border-slate-400 px-3 py-1 hover:bg-slate-100">Reject</button>
+          <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100" onClick={e => e.stopPropagation()}>
+            {isDoctor && <button onClick={() => run(() => post(`/facts/${fact.id}/confirm`))} className="text-sm bg-green-700 text-white font-medium px-4 py-1.5 hover:bg-green-800">Confirm</button>}
+            <button onClick={() => run(() => post(`/facts/${fact.id}/reject`))} className="text-sm border border-slate-400 px-4 py-1.5 hover:bg-slate-100">Reject</button>
           </div>
         )}
       </div>
@@ -179,16 +185,16 @@ function PatientChart() {
   )
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold">{patient.full_name} · {patient.age} {patient.sex} · MRN {patient.mrn} · {LANG[patient.preferred_lang] || patient.preferred_lang}</h1>
-          <p className="text-sm text-slate-500">
-            {encounter ? `${encounter.chief_complaint || 'Visit'} · ${fmtDate(encounter.started_at)} · ${signed ? 'signed' : 'in progress'}` : 'No visit yet'}
-            {' · '}signed in as {chart.viewer.name} ({chart.viewer.role})
-          </p>
-        </div>
-        <Link href="/patients" className="text-blue-700 hover:underline text-sm">← Patients</Link>
+    <div className="min-h-screen lg:h-screen flex flex-col">
+      <TopBar />
+      <header className="bg-white border-b border-slate-200 px-6 py-3">
+        <h1 className="text-xl font-semibold">
+          {patient.full_name}
+          <span className="ml-3 text-sm font-normal text-slate-600">{patient.age} {patient.sex} · MRN {patient.mrn} · {LANG[patient.preferred_lang] || patient.preferred_lang}</span>
+        </h1>
+        <p className="text-sm text-slate-500">
+          {encounter ? `${encounter.chief_complaint || 'Visit'} · ${fmtDate(encounter.started_at)} · ${signed ? 'signed' : 'in progress'}` : 'No visit yet'}
+        </p>
       </header>
 
       {/* safety banner: always visible on every tab */}
@@ -205,11 +211,11 @@ function PatientChart() {
           )
         })}
         {chart.unverified_count > 0 && (
-          <p className="bg-amber-50 border border-amber-300 p-3 text-sm">
+          <p className="bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900">
             ◔ {chart.unverified_count} fact{chart.unverified_count > 1 ? 's are' : ' is'} not yet verified and {chart.unverified_count > 1 ? 'were' : 'was'} not evaluated by the safety engine. No alert does not mean safe.
           </p>
         )}
-        {chart.safety_notes.map((n: any) => <p key={n.rule_id} className="bg-slate-100 border border-slate-300 p-3 text-sm">{n.message} ({n.rule_id} not evaluated)</p>)}
+        {chart.safety_notes.map((n: any) => <p key={n.rule_id} className="bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-700">{n.message} ({n.rule_id} not evaluated)</p>)}
         {derived.handledAlerts.length > 0 && (
           <details className="text-sm text-slate-600">
             <summary className="cursor-pointer">{derived.handledAlerts.length} handled alert(s)</summary>
@@ -232,95 +238,119 @@ function PatientChart() {
       </nav>
 
       {tab === 'review' && (
-        <div className="flex-1 grid lg:grid-cols-3 gap-0 min-h-0">
+        <div className={`flex-1 grid gap-0 min-h-0 ${sourceOpen ? 'lg:grid-cols-[24rem_minmax(0,1fr)_minmax(22rem,30rem)]' : 'lg:grid-cols-[26rem_minmax(0,1fr)]'}`}>
           {/* facts */}
-          <section className="border-r border-slate-200 p-5 space-y-5 overflow-y-auto">
+          <section className="border-r border-slate-200 p-5 space-y-8 lg:overflow-y-auto">
             <div>
-              <div className="flex flex-wrap items-start gap-2">
-                <label className={`inline-block bg-blue-600 text-white font-medium py-2 px-4 text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
-                  Upload PDF, scan or photo, audio or transcript
+              <PanelTitle>Add to this visit</PanelTitle>
+              <div className="flex flex-wrap gap-2">
+                <label className={`flex-1 min-w-40 text-center bg-blue-600 text-white font-medium py-2 px-4 text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
+                  Upload a file
                   <input type="file" className="hidden" accept=".pdf,.txt,image/*,audio/*" disabled={signed}
                     onChange={e => { upload(e.target.files?.[0]); e.target.value = '' }} />
                 </label>
                 <ConsultRecorder disabled={signed} onRecorded={upload} />
               </div>
-              <p className="text-xs text-slate-500 mt-1">A recording is sent to the transcription service as recorded; only its transcript is redacted.</p>
-              <ul className="mt-2 space-y-1">
-                {chart.jobs.map((job: any) => (
-                  <li key={job.id} className="text-sm border border-slate-200 bg-white px-3 py-2">
-                    <span className="font-medium">{job.filename}</span>{' — '}
-                    {job.status === 'failed' ? <span className="text-red-700">✕ Failed: {job.error}</span>
-                      : job.status === 'done' ? <span className="text-green-800">✓ {job.result?.facts} facts ({job.result?.verified} verified, {job.result?.needs_attention} need attention, {job.result?.possible_omissions} possible omissions)</span>
-                        : <span className="text-blue-700 animate-pulse">{job.stage}…</span>}
-                    {job.result?.warning && <span className="block text-amber-800">{job.result.warning}</span>}
-                    {job.result?.ocr && (
-                      <span className="block text-slate-600">
-                        Scan read by OCR on this machine · {job.result.ocr.rows} row(s)
-                        {job.result.ocr.handwriting > 0 && <> · {job.result.ocr.handwriting} handwritten, held for you to confirm</>}
-                        {job.result.ocr.unreadable + job.result.ocr.low_confidence > 0 && (
-                          <button onClick={() => setScanDoc(job.result.document_id)} className="ml-1 font-semibold hover:underline" style={{ color: 'var(--state-extracted)' }}>
-                            ◔ {job.result.ocr.unreadable + job.result.ocr.low_confidence} could not be read reliably — show on page →
-                          </button>
+              <p className="text-xs text-slate-500 mt-2">PDF, scan, photo, audio or typed transcript</p>
+            </div>
+
+            {chart.jobs.length > 0 && (
+              <div>
+                <PanelTitle count={chart.jobs.length}>Recent uploads</PanelTitle>
+                <ul className="space-y-2">
+                  {chart.jobs.map((job: any) => {
+                    const scan = job.result?.ocr
+                    const unsure = scan ? scan.unreadable + scan.low_confidence : 0
+                    return (
+                      <li key={job.id} className="text-sm border border-slate-200 bg-white">
+                        <div className="px-3 py-2.5">
+                          <p className="font-medium break-all">{job.filename}</p>
+                          <p className="mt-0.5">
+                            {job.status === 'failed' ? <span className="text-red-700">✕ Failed: {job.error}</span>
+                              : job.status === 'done' ? <><span className="text-green-800 font-medium">✓ {job.result?.facts} fact{job.result?.facts === 1 ? '' : 's'}</span><span className="text-slate-600"> · {job.result?.verified} verified · {job.result?.needs_attention} need attention · {job.result?.possible_omissions} possible omission{job.result?.possible_omissions === 1 ? '' : 's'}</span></>
+                                : <span className="text-blue-700">{job.stage}…</span>}
+                          </p>
+                          {job.result?.warning && <p className="mt-1 text-amber-800">{job.result.warning}</p>}
+                        </div>
+                        {(scan || job.result?.llm_calls > 0) && (
+                          <div className="border-t border-slate-100 px-3 py-2 space-y-1 text-slate-600">
+                            {scan && (
+                              <p>
+                                Read by OCR on this machine · {scan.rows} row{scan.rows === 1 ? '' : 's'}
+                                {scan.handwriting > 0 && <> · {scan.handwriting} handwritten, held for you to confirm</>}
+                              </p>
+                            )}
+                            {unsure > 0 && (
+                              <button onClick={() => setScanDoc(job.result.document_id)} className="block text-left font-medium hover:underline" style={{ color: 'var(--state-extracted)' }}>
+                                ◔ {unsure} row{unsure === 1 ? '' : 's'} could not be read reliably — show on page →
+                              </button>
+                            )}
+                            {job.result?.llm_calls > 0 && (
+                              <button onClick={() => setReceiptJob(job.id)} className="block text-left text-blue-700 hover:underline">
+                                {job.result.redacted} identifier{job.result.redacted === 1 ? '' : 's'} removed — see what the model saw →
+                              </button>
+                            )}
+                          </div>
                         )}
-                      </span>
-                    )}
-                    {job.result?.llm_calls > 0 && (
-                      <button onClick={() => setReceiptJob(job.id)} className="block text-blue-700 hover:underline text-left">
-                        {job.result.redacted} identifier{job.result.redacted === 1 ? '' : 's'} removed before the model call — see what the model saw →
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--state-extracted)' }}>Needs your attention ({derived.attention.length})</h2>
-              <p className="text-xs text-slate-500 mb-2">Unverified facts, plus every allergy and medication from this visit — these are never auto-collapsed.</p>
-              <div className="space-y-2">
-                {derived.attention.map(factCard)}
-                {!derived.attention.length && <p className="text-sm text-slate-500">Nothing waiting for review.</p>}
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
-            </div>
-
-            <details>
-              <summary className="cursor-pointer text-sm font-semibold" style={{ color: 'var(--state-verified)' }}>✓ {derived.collapsed.length} verified item(s) hidden — labs, vitals, history</summary>
-              <div className="space-y-2 mt-2">{derived.collapsed.map(factCard)}</div>
-            </details>
-            <details>
-              <summary className="cursor-pointer text-sm font-semibold" style={{ color: 'var(--state-confirmed)' }}>✓✓ {derived.record.length} doctor-confirmed fact(s) on record</summary>
-              <div className="space-y-2 mt-2">{derived.record.map(factCard)}</div>
-            </details>
-            {derived.rejected.length > 0 && (
-              <details>
-                <summary className="cursor-pointer text-sm font-semibold text-slate-500">✕ {derived.rejected.length} rejected</summary>
-                <div className="space-y-2 mt-2">{derived.rejected.map(factCard)}</div>
-              </details>
             )}
 
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 mb-2">This consult</h2>
-              <ul className="text-sm space-y-1">
+              <PanelTitle count={derived.attention.length} color="var(--state-extracted)">Needs your attention</PanelTitle>
+              <div className="space-y-3">
+                {derived.attention.map(factCard)}
+                {!derived.attention.length && <p className="text-sm text-slate-500 bg-white border border-slate-200 px-3 py-2.5">Nothing waiting. Unverified facts, and every allergy and medication from this visit, appear here.</p>}
+              </div>
+            </div>
+
+            <div>
+              <PanelTitle>Already reviewed</PanelTitle>
+              <div className="border border-slate-200 bg-white divide-y divide-slate-200">
+                <FactGroup icon="✓" color="var(--state-verified)" label="Verified automatically" hint="labs, vitals, history" count={derived.collapsed.length}>{derived.collapsed.map(factCard)}</FactGroup>
+                <FactGroup icon="✓✓" color="var(--state-confirmed)" label="Confirmed by a doctor" hint="on record" count={derived.record.length}>{derived.record.map(factCard)}</FactGroup>
+                {derived.rejected.length > 0 && (
+                  <FactGroup icon="✕" color="var(--state-rejected)" label="Rejected" count={derived.rejected.length}>{derived.rejected.map(factCard)}</FactGroup>
+                )}
+              </div>
+            </div>
+
+            <details className="group border border-slate-200 bg-white">
+              <summary className="flex items-center gap-2 px-3 py-2.5 text-sm cursor-pointer list-none hover:bg-slate-50">
+                <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden>▸</span>
+                <span className="font-semibold">Consult checklist</span>
+                <span className="ml-auto text-slate-600">{chart.gaps.filter((g: any) => g.status !== 'missing').length} of {chart.gaps.length} covered</span>
+              </summary>
+              <ul className="divide-y divide-slate-100 text-sm border-t border-slate-200">
                 {chart.gaps.map((gap: any) => (
-                  <li key={gap.key}>
-                    {gap.status === 'captured' ? '✓' : gap.status === 'missing' ? '○' : '•'} {gap.label}
-                    {gap.status === 'missing' && <span className="text-slate-500"> — not captured yet</span>}
-                    {gap.detail && <span className="text-slate-600"> — {gap.detail}</span>}
+                  <li key={gap.key} className="px-3 py-2 flex gap-2">
+                    <span className="w-4 shrink-0 text-center" style={{ color: gap.status === 'captured' ? 'var(--state-confirmed)' : gap.status === 'missing' ? 'var(--state-extracted)' : 'var(--muted)' }}>
+                      {gap.status === 'captured' ? '✓' : gap.status === 'missing' ? '○' : '•'}
+                    </span>
+                    <span>
+                      {gap.label}
+                      {gap.status === 'missing' && <span className="text-slate-500"> — not captured yet</span>}
+                      {gap.detail && <span className="text-slate-600"> — {gap.detail}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
-            </div>
+            </details>
           </section>
 
           {/* note + sign-off */}
-          <section className="border-r border-slate-200 p-5 bg-white overflow-y-auto">
+          <section className="bg-white lg:overflow-y-auto">
+            <div className="max-w-2xl p-8">
             <div className="flex justify-between items-baseline mb-3">
               <h2 className="text-lg font-semibold">SOAP note</h2>
               <span className="text-xs text-slate-500">{note ? `${note.status} · ${note.generated_by}` : ''}</span>
             </div>
             {!note ? <p className="text-sm text-slate-500">No draft yet. Upload a document or a consult recording to start.</p> : (
               <>
-                <p className="text-xs text-slate-500 mb-3">Built only from verified facts. Click any sentence to see its source.</p>
+                <p className="text-sm text-slate-500 mb-5">Built only from verified facts. Click a sentence to open its source.</p>
                 {noteSection('Subjective', note.subjective)}
                 {noteSection('Objective', note.objective)}
                 {noteSection('Assessment', note.assessment)}
@@ -358,13 +388,19 @@ function PatientChart() {
                 )}
               </div>
             )}
+            </div>
           </section>
 
-          {/* provenance */}
-          <section className="p-5 bg-slate-100 overflow-y-auto">
-            {scanDoc && <ScanReview key={scanDoc} documentId={scanDoc} onClose={() => setScanDoc(null)} />}
-            <SourceViewer fact={derived.selected} onSelectFact={selectFact} />
-          </section>
+          {/* provenance: opens when a fact, a sentence or a scan is picked */}
+          {sourceOpen && (
+            <section className="border-l border-slate-200 p-5 bg-slate-50 lg:overflow-y-auto">
+              <div className="flex justify-end mb-1">
+                <button onClick={() => { setSelectedId(null); setScanDoc(null) }} className="text-sm border border-slate-300 bg-white px-2.5 py-1 hover:bg-slate-100">Close ×</button>
+              </div>
+              {scanDoc && <ScanReview key={scanDoc} documentId={scanDoc} onClose={() => setScanDoc(null)} />}
+              {derived.selected && <SourceViewer fact={derived.selected} onSelectFact={selectFact} />}
+            </section>
+          )}
         </div>
       )}
 
@@ -378,6 +414,32 @@ function PatientChart() {
       )}
       {receiptJob && <PrivacyReceipt key={receiptJob} jobId={receiptJob} onClose={() => setReceiptJob(null)} />}
     </div>
+  )
+}
+
+function PanelTitle({ children, count, color }: { children: React.ReactNode; count?: number; color?: string }) {
+  return (
+    <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500 mb-2" style={color ? { color } : undefined}>
+      {children}
+      {count !== undefined && <span className="font-mono font-normal text-slate-600 bg-slate-200 px-1.5 py-0.5">{count}</span>}
+    </h2>
+  )
+}
+
+/** One collapsible row of the "Already reviewed" list. */
+function FactGroup({ icon, color, label, hint, count, children }: { icon: string; color: string; label: string; hint?: string; count: number; children: React.ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="flex items-center gap-2 px-3 py-2.5 text-sm cursor-pointer list-none hover:bg-slate-50">
+        <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden>▸</span>
+        <span className="font-semibold" style={{ color }}>{icon} {label}</span>
+        {hint && <span className="text-slate-500">{hint}</span>}
+        <span className="ml-auto font-mono text-slate-600">{count}</span>
+      </summary>
+      <div className="space-y-3 p-3 bg-slate-50 border-t border-slate-200">
+        {count ? children : <p className="text-sm text-slate-500">None yet.</p>}
+      </div>
+    </details>
   )
 }
 
