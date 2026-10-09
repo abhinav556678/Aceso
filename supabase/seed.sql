@@ -1,57 +1,89 @@
--- auth.users requires a few fields
-insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, recovery_sent_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)
-values
-  ('00000000-0000-0000-0000-000000000000', 'u0000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'dr.rao@aceso.demo', crypt('password123', gen_salt('bf')), now(), now(), now(), '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'u0000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'nurse.priya@aceso.demo', crypt('password123', gen_salt('bf')), now(), now(), now(), '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'u0000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'admin.kumar@aceso.demo', crypt('password123', gen_salt('bf')), now(), now(), now(), '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '')
-on conflict (id) do nothing;
+-- Reference data + demo users + the six synthetic patients. Safe to re-run.
+-- Clinical demo data (documents, transcripts, facts) is created by scripts/seed_demo.py,
+-- because it needs real PDF bounding boxes.
+-- All data is fictional. Clinical content must be reviewed by a clinician before real use.
 
-insert into auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
-values
-  (gen_random_uuid(), 'u0000000-0000-4000-8000-000000000001', format('{"sub":"%s","email":"%s"}', 'u0000000-0000-4000-8000-000000000001', 'dr.rao@aceso.demo')::jsonb, 'email', now(), now(), now()),
-  (gen_random_uuid(), 'u0000000-0000-4000-8000-000000000002', format('{"sub":"%s","email":"%s"}', 'u0000000-0000-4000-8000-000000000002', 'nurse.priya@aceso.demo')::jsonb, 'email', now(), now(), now()),
-  (gen_random_uuid(), 'u0000000-0000-4000-8000-000000000003', format('{"sub":"%s","email":"%s"}', 'u0000000-0000-4000-8000-000000000003', 'admin.kumar@aceso.demo')::jsonb, 'email', now(), now(), now())
-on conflict do nothing;
+-- ---------- demo users (API uses a demo role switcher, not Supabase login) ----------
+insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+                        confirmation_token, email_change, email_change_token_new, recovery_token)
+select '00000000-0000-0000-0000-000000000000', v.id::uuid, 'authenticated', 'authenticated', v.email,
+       extensions.crypt('password123', extensions.gen_salt('bf')), now(),
+       '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''
+from (values
+  ('aaaaaaaa-0000-4000-8000-000000000001','dr.rao@aceso.demo'),
+  ('aaaaaaaa-0000-4000-8000-000000000002','nurse.priya@aceso.demo'),
+  ('aaaaaaaa-0000-4000-8000-000000000003','admin.kumar@aceso.demo')
+) as v(id, email)
+where not exists (select 1 from auth.users u where u.email = v.email);
 
 insert into profiles (id, full_name, role, registration_no, preferred_lang)
-values
-  ('u0000000-0000-4000-8000-000000000001', 'Dr. Rao', 'doctor', 'MCI-12345', 'en'),
-  ('u0000000-0000-4000-8000-000000000002', 'Nurse Priya', 'nurse', null, 'en'),
-  ('u0000000-0000-4000-8000-000000000003', 'Admin Kumar', 'admin', null, 'en')
+select u.id, v.full_name, v.role::user_role, v.reg, 'en'
+from (values
+  ('dr.rao@aceso.demo','Dr. Rao','doctor','TNMC-DEMO-12345'),
+  ('nurse.priya@aceso.demo','Nurse Priya','nurse',null),
+  ('admin.kumar@aceso.demo','Admin Kumar','admin',null)
+) as v(email, full_name, role, reg)
+join auth.users u on u.email = v.email
 on conflict (id) do nothing;
 
+-- ---------- terminology ----------
+-- brand (or generic spelled out) -> generic. Lower-case keys.
 insert into drug_brands(brand,generic,rxnorm,atc,default_strength) values
  ('glycomet','metformin','6809','A10BA02','500 mg'),
- ('dolo 650','paracetamol','161','N02BE01','650 mg'),
+ ('metformin','metformin','6809','A10BA02',null),
+ ('dolo','paracetamol','161','N02BE01','650 mg'),
  ('crocin','paracetamol','161','N02BE01','650 mg'),
+ ('calpol','paracetamol','161','N02BE01','500 mg'),
+ ('paracetamol','paracetamol','161','N02BE01',null),
+ ('acetaminophen','paracetamol','161','N02BE01',null),
  ('ecosprin','aspirin','1191','B01AC06','75 mg'),
+ ('aspirin','aspirin','1191','B01AC06',null),
  ('warf','warfarin','11289','B01AA03',null),
+ ('warfarin','warfarin','11289','B01AA03',null),
  ('mox','amoxicillin','723','J01CA04','500 mg'),
+ ('amoxicillin','amoxicillin','723','J01CA04',null),
  ('augmentin','amoxicillin+clavulanate',null,'J01CR02','625 mg'),
+ ('penicillin','penicillin','7980','J01CE',null),
+ ('ampicillin','ampicillin','733','J01CA01',null),
  ('septran','co-trimoxazole','10180','J01EE01',null),
+ ('co-trimoxazole','co-trimoxazole','10180','J01EE01',null),
+ ('cotrimoxazole','co-trimoxazole','10180','J01EE01',null),
  ('telma','telmisartan','73494','C09CA07','40 mg'),
+ ('telmisartan','telmisartan','73494','C09CA07',null),
  ('pantocid','pantoprazole','40790','A02BC02','40 mg'),
- ('amaryl','glimepiride','25789','A10BB12','1 mg')
-on conflict (brand) do update set generic=excluded.generic;
+ ('pantoprazole','pantoprazole','40790','A02BC02',null),
+ ('amaryl','glimepiride','25789','A10BB12','1 mg'),
+ ('glimepiride','glimepiride','25789','A10BB12',null),
+ ('brufen','ibuprofen','5640','M01AE01','400 mg'),
+ ('ibuprofen','ibuprofen','5640','M01AE01',null)
+on conflict (brand) do update set generic=excluded.generic, rxnorm=excluded.rxnorm,
+  atc=excluded.atc, default_strength=excluded.default_strength;
 
 insert into concepts(system,code,display,synonyms) values
- ('LOINC','2160-0','Creatinine [Mass/volume] in Serum or Plasma','{creatinine,s.creatinine,scr}'),
- ('LOINC','4548-4','Hemoglobin A1c/Hemoglobin.total in Blood','{hba1c,a1c,glycated hemoglobin}'),
- ('LOINC','1558-6','Fasting glucose [Mass/volume] in Serum or Plasma','{fbs,fasting blood sugar}'),
- ('LOINC','718-7','Hemoglobin [Mass/volume] in Blood','{hb,haemoglobin}'),
- ('LOINC','2823-3','Potassium [Moles/volume] in Serum or Plasma','{k,potassium}'),
- ('LOINC','62238-1','eGFR (CKD-EPI) — computed','{egfr}'),
- ('LOINC','8480-6','Systolic blood pressure','{sbp,bp systolic}'),
- ('LOINC','8462-4','Diastolic blood pressure','{dbp,bp diastolic}'),
- ('ICD10','E11','Type 2 diabetes mellitus','{t2dm,diabetes,sugar}'),
- ('ICD10','N18.4','Chronic kidney disease, stage 4','{ckd 4}'),
- ('ICD10','I10','Essential hypertension','{htn,bp}'),
- ('ICD10','J06.9','Acute upper respiratory infection, unspecified','{uri,cold}')
-on conflict do nothing;
+ ('LOINC','2160-0','Creatinine, serum','{creatinine,s.creatinine,serum creatinine,scr}'),
+ ('LOINC','4548-4','HbA1c','{hba1c,a1c,glycated hemoglobin,glycosylated hemoglobin}'),
+ ('LOINC','1558-6','Fasting glucose','{fbs,fasting blood sugar,fasting glucose,fasting plasma glucose}'),
+ ('LOINC','718-7','Hemoglobin','{hemoglobin,haemoglobin}'),
+ ('LOINC','2823-3','Potassium','{potassium,serum potassium}'),
+ ('LOINC','62238-1','eGFR (CKD-EPI 2021)','{egfr}'),
+ ('LOINC','8480-6','Systolic blood pressure','{sbp,systolic bp,systolic blood pressure}'),
+ ('LOINC','8462-4','Diastolic blood pressure','{dbp,diastolic bp,diastolic blood pressure}'),
+ ('LOINC','8867-4','Heart rate','{heart rate,pulse}'),
+ ('LOINC','29463-7','Body weight','{weight,body weight}'),
+ ('ICD10','E11','Type 2 diabetes mellitus','{t2dm,type 2 diabetes,type 2 diabetes mellitus,diabetes,diabetes mellitus}'),
+ ('ICD10','N18.4','Chronic kidney disease, stage 4','{ckd stage 4,ckd 4}'),
+ ('ICD10','N18.9','Chronic kidney disease','{ckd,chronic kidney disease}'),
+ ('ICD10','I10','Essential hypertension','{htn,hypertension,high blood pressure}'),
+ ('ICD10','I48.91','Atrial fibrillation','{atrial fibrillation,afib}'),
+ ('ICD10','M19.90','Osteoarthritis','{osteoarthritis}'),
+ ('ICD10','J06.9','Acute upper respiratory infection','{uri,urti,upper respiratory infection,viral uri,common cold}')
+on conflict (system,code) do update set display=excluded.display, synonyms=excluded.synonyms;
 
 insert into allergy_groups values
  ('penicillins','penicillin'),('penicillins','amoxicillin'),('penicillins','ampicillin'),
  ('penicillins','amoxicillin+clavulanate'),
+ ('sulfonamide_antibiotics','sulfa'),('sulfonamide_antibiotics','sulfonamide'),
  ('sulfonamide_antibiotics','sulfamethoxazole'),('sulfonamide_antibiotics','co-trimoxazole')
 on conflict do nothing;
 
@@ -59,9 +91,17 @@ insert into reference_ranges(loinc,sex,age_min,age_max,low,high,plausible_min,pl
  ('2160-0','M',18,120,0.7,1.3,0.1,20,'mg/dL'),
  ('2160-0','F',18,120,0.6,1.1,0.1,20,'mg/dL'),
  ('4548-4','any',0,120,4.0,5.6,3,20,'%'),
- ('1558-6','any',0,120,70,100,20,800,'mg/dL')
+ ('1558-6','any',0,120,70,100,20,800,'mg/dL'),
+ ('718-7','any',0,120,12,16,3,25,'g/dL'),
+ ('2823-3','any',0,120,3.5,5.1,1.5,9,'mmol/L'),
+ ('62238-1','any',0,120,90,120,1,200,'mL/min/1.73m2'),
+ ('8480-6','any',0,120,90,130,50,280,'mmHg'),
+ ('8462-4','any',0,120,60,85,30,180,'mmHg'),
+ ('8867-4','any',0,120,60,100,25,250,'/min'),
+ ('29463-7','any',0,120,null,null,2,400,'kg')
 on conflict do nothing;
 
+-- ---------- safety knowledge ----------
 insert into drug_interactions(drug_a,drug_b,severity,description,source,source_ref) values
  ('aspirin','warfarin','major','Increased bleeding risk','SEED-CURATED','manual-001')
 on conflict do nothing;
@@ -71,151 +111,31 @@ insert into dose_limits(generic,route,population,max_single_mg,max_daily_mg,sour
  ('metformin','PO','adult',1000,2550,'SEED-CURATED label limit')
 on conflict do nothing;
 
+-- Rules are data; services/api/aceso/safety/engine.py evaluates them.
 insert into safety_rules (id, title, rule_type, guideline_source, severity, rule, clinician_reviewed_by) values
- ('KDIGO-METFORMIN-EGFR30', 'Metformin is contraindicated when eGFR < 30', 'lab_contraindication', 'KDIGO', 'critical',
-  '{"all": [{"fact": {"type": "medication", "generic": "metformin", "assertion": "present"}}, {"metric": "egfr", "op": "<", "value": 30}]}',
-  'Dr. Demo')
-on conflict do nothing;
+ ('KDIGO-METFORMIN-EGFR30', 'Metformin is contraindicated when eGFR < 30', 'lab_contraindication',
+  'KDIGO guideline (metformin in CKD) · metformin product labelling', 'critical',
+  '{"all":[{"fact":{"type":"medication","generic":"metformin","assertion":"present"}},{"metric":"egfr","op":"<","value":30}],"message":"Metformin is contraindicated when eGFR < 30 mL/min/1.73 m²"}',
+  null),
+ ('INT-PAIR', 'Drug-drug interaction', 'interaction', 'drug_interactions table (SEED-CURATED)', 'high',
+  '{"min_severity":"moderate"}', null),
+ ('DUP-THERAPY', 'Duplicate therapy', 'duplicate', 'Same generic prescribed under two products', 'moderate',
+  '{}', null),
+ ('DOSE-MAX-DAILY', 'Maximum daily dose exceeded', 'dose', 'dose_limits table (SEED-CURATED label limits)', 'high',
+  '{}', null),
+ ('ALLERGY-CONFLICT', 'Prescribed drug conflicts with a recorded allergy', 'allergy',
+  'allergy_groups cross-reactivity table', 'critical', '{}', null),
+ ('RECORD-CONTRADICTION', 'The record contradicts itself', 'contradiction',
+  'Fact store consistency check', 'high', '{}', null)
+on conflict (id) do update set title=excluded.title, rule_type=excluded.rule_type,
+  guideline_source=excluded.guideline_source, severity=excluded.severity, rule=excluded.rule;
 
+-- ---------- the six synthetic patients ----------
 insert into patients(id,mrn,full_name,dob,sex,preferred_lang) values
- ('00000000-0000-4000-8000-000000000001','ACE-0001','Meena Rajan',        current_date - interval '50 years','F','ta'),
- ('00000000-0000-4000-8000-000000000002','ACE-0002','Arjun Menon',        current_date - interval '45 years','M','en'),
- ('00000000-0000-4000-8000-000000000003','ACE-0003','Lakshmi Narayanan',  current_date - interval '58 years','F','ta'),
- ('00000000-0000-4000-8000-000000000004','ACE-0004','Suresh Babu',        current_date - interval '72 years','M','ta'),
- ('00000000-0000-4000-8000-000000000005','ACE-0005','Fatima Begum',       current_date - interval '55 years','F','ta'),
- ('00000000-0000-4000-8000-000000000006','ACE-0006','Karthik S',          current_date - interval '34 years','M','en')
+ ('00000000-0000-4000-8000-000000000001','ACE-0001','Meena Rajan',        (current_date - interval '50 years 2 months')::date,'F','ta'),
+ ('00000000-0000-4000-8000-000000000002','ACE-0002','Arjun Menon',        (current_date - interval '45 years 2 months')::date,'M','en'),
+ ('00000000-0000-4000-8000-000000000003','ACE-0003','Lakshmi Narayanan',  (current_date - interval '58 years 2 months')::date,'F','ta'),
+ ('00000000-0000-4000-8000-000000000004','ACE-0004','Suresh Babu',        (current_date - interval '72 years 2 months')::date,'M','ta'),
+ ('00000000-0000-4000-8000-000000000005','ACE-0005','Fatima Begum',       (current_date - interval '55 years 2 months')::date,'F','hi'),
+ ('00000000-0000-4000-8000-000000000006','ACE-0006','Karthik S',          (current_date - interval '34 years 2 months')::date,'M','en')
 on conflict (id) do nothing;
-
--- S1 Golden Data
-insert into encounters (id, patient_id, doctor_id, status) values
-  ('e0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
-on conflict do nothing;
-
-insert into source_documents(id,patient_id,storage_path,kind,doc_date,page_count,ocr_engine,status) values
- ('d0000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001',
-  'documents/S1/labs_2026.pdf','lab_pdf', current_date - 14, 1,'golden','done')
-on conflict do nothing;
-
-insert into ocr_blocks(id,document_id,page_no,block_idx,kind,text,confidence,x,y,w,h) values
- ('b0000000-0000-4000-8000-000000000001','d0000000-0000-4000-8000-000000000001',1,12,'table_cell','2.1',0.97,0.52,0.31,0.06,0.022)
-on conflict do nothing;
-
-insert into audio_recordings (id, encounter_id, storage_path, duration_ms, status) values
- ('a0000000-0000-4000-8000-000000000001', 'e0000000-0000-4000-8000-000000000001', 'audio/S1/visit.wav', 120000, 'done')
-on conflict do nothing;
-
-insert into transcript_segments (id, recording_id, seq, speaker, start_ms, end_ms, text, confidence) values
- ('t0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 1, 'doctor', 41200, 44800, 'Continue Glycomet 500 twice daily.', 0.99)
-on conflict do nothing;
-
-insert into facts(id,patient_id,encounter_id,fact_type,assertion,code_system,code,display,raw_text,
-                  value_num,unit,effective_at,state,confidence,confidence_parts,
-                  source,document_id,block_ids,page_no,bbox,verification) values
- ('f0000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000001',
-  'lab_result','present','LOINC','2160-0','Creatinine, serum','2.1',
-  2.1,'mg/dL', now() - interval '14 days','verified',0.96,
-  '{"ocr":0.97,"plausibility":1,"verification":1}',
-  'document','d0000000-0000-4000-8000-000000000001','{b0000000-0000-4000-8000-000000000001}',
-  1,'{"x":0.52,"y":0.31,"w":0.06,"h":0.022}',
-  '{"ocr_match":{"ok":true},"transcript_support":{"ok":null},"omission":{"ok":true}}'),
- ('f0000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000001',
-  'medication','present','RxNorm','6809','Metformin','Glycomet 500',
-  null,null, now(),'extracted',0.85,
-  '{"verification":1}',
-  'audio',null,null,null,null,
-  '{"transcript_support":{"ok":true},"omission":{"ok":true}}')
-on conflict (id) do nothing;
-
-update facts set recording_id = 'a0000000-0000-4000-8000-000000000001', segment_ids = '{t0000000-0000-4000-8000-000000000001}', audio_start_ms = 41200, audio_end_ms = 44800 where id = 'f0000000-0000-4000-8000-000000000002';
-
-insert into safety_alerts (id, patient_id, encounter_id, rule_id, severity, message, status, trigger_fact_ids, trace) values
- ('al000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'e0000000-0000-4000-8000-000000000001', 'KDIGO-METFORMIN-EGFR30', 'critical', 'Metformin is contraindicated when eGFR < 30 mL/min/1.73 m²', 'open', '{f0000000-0000-4000-8000-000000000001,f0000000-0000-4000-8000-000000000002}', '{"steps": [{"label": "Medication on list", "result": true, "fact_id": "f0000000-0000-4000-8000-000000000002"}, {"label": "Computed eGFR", "value": 28.2, "unit": "mL/min/1.73 m\u00b2"}], "conclusion": "Metformin is contraindicated when eGFR < 30"}')
-on conflict do nothing;
-
-
--- ==========================================
--- S2 Golden Data: Allergy Contradiction
--- ==========================================
-insert into encounters (id, patient_id, doctor_id, status) values
-  ('e0000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
-on conflict do nothing;
-
--- Historical fact: Penicillin allergy from 2024
-insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
-                  effective_at,state,confidence,source,code_system,code) values
- ('f0000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000002',null,
-  'allergy','present','Penicillin (rash)','Allergy: Penicillin (rash)',
-  now() - interval '2 years','verified',0.99,'document', 'RxNorm', 'penicillin'),
- -- Today fact 1: Patient says "no allergies"
- ('f0000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000002',
-  'allergy','denied','allergies','no allergies',
-  now(),'verified',0.95,'audio', null, null),
- -- Today fact 2: Doctor prescribes Mox (amoxicillin)
- ('f0000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000002',
-  'medication','present','Mox (amoxicillin)','prescribe Mox',
-  now(),'verified',0.95,'audio', 'RxNorm', 'amoxicillin')
-on conflict (id) do nothing;
-
--- ==========================================
--- S3 Golden Data: Negation
--- ==========================================
-insert into encounters (id, patient_id, doctor_id, status) values
-  ('e0000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000003', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
-on conflict do nothing;
-
-insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
-                  effective_at,state,confidence,source,code_system,code) values
- ('f0000000-0000-4000-8000-000000000020','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
-  'diagnosis','denied','diabetes','no diabetes',
-  now(),'verified',0.99,'audio', 'ICD10', 'E11'),
- ('f0000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
-  'allergy','denied','sulfa','not allergic to sulfa',
-  now(),'verified',0.99,'audio', 'RxNorm', 'sulfamethoxazole'),
- ('f0000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
-  'symptom','denied','chest pain','no chest pain',
-  now(),'verified',0.99,'audio', 'SNOMED', 'chest_pain'),
- ('f0000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
-  'medication','present','Septran (co-trimoxazole)','prescribed Septran',
-  now(),'verified',0.99,'audio', 'RxNorm', 'co-trimoxazole')
-on conflict (id) do nothing;
-
--- ==========================================
--- S4 Golden Data: Duplicate, Dose, Interaction
--- ==========================================
-insert into encounters (id, patient_id, doctor_id, status) values
-  ('e0000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000004', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
-on conflict do nothing;
-
-insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
-                  effective_at,state,confidence,source,code_system,code,value_num,unit,dose) values
- ('f0000000-0000-4000-8000-000000000030','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
-  'medication','present','Ecosprin 75','Ecosprin 75',
-  now(),'verified',0.99,'audio', 'RxNorm', 'aspirin', 75, 'mg', '{"daily_mg": 75}'),
- ('f0000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
-  'medication','present','Warf','Warf',
-  now(),'verified',0.99,'audio', 'RxNorm', 'warfarin', null, null, null),
- ('f0000000-0000-4000-8000-000000000032','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
-  'medication','present','Dolo 650 QID','Dolo 650 QID',
-  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', 650, 'mg', '{"daily_mg": 2600}'),
- ('f0000000-0000-4000-8000-000000000033','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
-  'medication','present','Crocin 650 TDS','Crocin 650 TDS',
-  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', 650, 'mg', '{"daily_mg": 1950}')
-on conflict (id) do nothing;
-
--- ==========================================
--- S6 Golden Data: Control
--- ==========================================
-insert into encounters (id, patient_id, doctor_id, status) values
-  ('e0000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000006', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
-on conflict do nothing;
-
-insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
-                  effective_at,state,confidence,source,code_system,code,value_num,unit,dose) values
- ('f0000000-0000-4000-8000-000000000050','00000000-0000-4000-8000-000000000006','e0000000-0000-4000-8000-000000000006',
-  'diagnosis','present','viral URI','viral URI',
-  now(),'verified',0.99,'audio', 'ICD10', 'J06.9', null, null, null),
- ('f0000000-0000-4000-8000-000000000051','00000000-0000-4000-8000-000000000006','e0000000-0000-4000-8000-000000000006',
-  'medication','present','paracetamol','paracetamol',
-  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', null, null, null)
-on conflict (id) do nothing;
-

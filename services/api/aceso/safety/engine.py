@@ -1,284 +1,340 @@
+"""Deterministic safety engine + contradiction engine.
+
+Reads only `verified` / `clinician_confirmed` facts. Rules are rows in
+`safety_rules`; every alert carries an explainability trace of the exact
+inputs, comparisons and source facts. No language model is involved.
+"""
 import logging
-import uuid
-import json
-from typing import List, Dict, Any, Optional
-from datetime import date
-from aceso.db import pool
+from datetime import datetime, timedelta, timezone
+from itertools import combinations
+from typing import Optional
+
+from aceso.safety.metrics import egfr_ckdepi_2021
 
 logger = logging.getLogger(__name__)
 
-def calculate_egfr(creatinine: float, age: int, sex: str) -> float:
-    kappa = 0.7 if sex == 'F' else 0.9
-    alpha = -0.241 if sex == 'F' else -0.302
-    
-    scr_over_kappa = creatinine / kappa
-    min_val = min(scr_over_kappa, 1.0)
-    max_val = max(scr_over_kappa, 1.0)
-    
-    egfr = 142.0 * (min_val ** alpha) * (max_val ** -1.200) * (0.9938 ** age)
-    if sex == 'F':
-        egfr *= 1.012
-        
-    return round(egfr, 1)
+CREATININE_LOINC = "2160-0"
+EGFR_LOINC = "62238-1"
+EGFR_UNIT = "mL/min/1.73m2"
+CREATININE_MAX_AGE_DAYS = 90
+INTERACTION_SEVERITY = {"contraindicated": "critical", "major": "high", "moderate": "moderate", "minor": "info"}
+SEVERITY_ORDER = ["minor", "moderate", "major", "contraindicated"]
+OPS = {"<": lambda a, b: a < b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, ">=": lambda a, b: a >= b}
 
-class PatientHealthData:
-    def __init__(self, age: int, sex: str, facts: List[Dict]):
-        self.age = age
-        self.sex = sex
+
+def _when(fact: dict) -> datetime:
+    return fact["effective_at"] or fact["created_at"]
+
+
+def _generic(fact: dict) -> str:
+    return (fact["value_text"] or fact["display"] or "").lower()
+
+
+def _source(fact: dict) -> str:
+    if fact["source"] == "document":
+        return f"{fact.get('document_name') or 'document'} p{fact['page_no']}"
+    if fact["source"] == "audio":
+        return f"consult audio {fact['audio_start_ms'] // 1000}s–{fact['audio_end_ms'] // 1000}s"
+    return fact["created_by"] or "manual entry"
+
+
+def _evidence(fact: dict) -> str:
+    quote = f"\"{fact['raw_text']}\"" if fact["raw_text"] else fact["display"]
+    return f"{quote} · {_source(fact)} · {_when(fact):%d %b %Y}"
+
+
+class PatientState:
+    """The trusted view of one patient that the rules run against."""
+
+    def __init__(self, patient: dict, facts: list[dict]):
+        self.patient = patient
         self.facts = facts
+        meds = [f for f in facts if f["fact_type"] == "medication" and f["assertion"] in ("present", "denied")]
+        latest: dict = {}
+        for fact in sorted(meds, key=_when):
+            brand = (fact["dose"] or {}).get("brand") or _generic(fact)
+            latest[(_generic(fact), brand)] = fact
+        stopped = {g: _when(f) for (g, _), f in latest.items() if f["assertion"] == "denied"}
+        # one entry per product; a newer "not taking X" removes X from the current list
+        self.current_meds = [f for (g, _), f in latest.items()
+                             if f["assertion"] == "present" and not (g in stopped and stopped[g] > _when(f))]
+        self.allergies_present = [f for f in facts if f["fact_type"] == "allergy" and f["assertion"] == "present"]
+        self.allergies_denied = [f for f in facts if f["fact_type"] == "allergy" and f["assertion"] == "denied"]
 
-def evaluate_safety_rules(patient_data: PatientHealthData, encounter_id: Optional[str]) -> List[Dict]:
+    def meds_of(self, generic: str) -> list[dict]:
+        return [f for f in self.current_meds if _generic(f) == generic]
+
+
+# ---------------------------------------------------------------- metrics
+
+def compute_egfr(state: PatientState) -> dict:
+    """Latest trusted creatinine -> eGFR. Missing or stale input is reported, never guessed."""
+    creatinines = [f for f in state.facts if f["code"] == CREATININE_LOINC
+                   and f["assertion"] == "present" and f["value_num"] is not None]
+    if not creatinines:
+        return {"available": False, "reason": "eGFR cannot be computed: no verified creatinine on file"}
+    latest = max(creatinines, key=_when)
+    measured = _when(latest)
+    if datetime.now(timezone.utc) - measured > timedelta(days=CREATININE_MAX_AGE_DAYS):
+        return {"available": False,
+                "reason": f"eGFR cannot be computed: latest creatinine is older than {CREATININE_MAX_AGE_DAYS} days"}
+    dob, sex = state.patient["dob"], state.patient["sex"]
+    age = measured.year - dob.year - ((measured.month, measured.day) < (dob.month, dob.day))
+    value = egfr_ckdepi_2021(float(latest["value_num"]), age, sex)
+    return {"available": True, "value": value, "age": age, "sex": sex, "creatinine": latest}
+
+
+def _persist_egfr(cur, state: PatientState, egfr: dict) -> None:
+    """Store the computed value as a derived fact so it shows on trends with its inputs."""
+    cur.execute("select id, dose->>'input_fact' as input_fact from facts where patient_id = %s and code = %s "
+                "and created_by = 'system:metric' and state not in ('superseded','rejected')",
+                (state.patient["id"], EGFR_LOINC))
+    existing = cur.fetchall()
+    current_input = str(egfr["creatinine"]["id"]) if egfr["available"] else None
+    for row in existing:
+        if row["input_fact"] != current_input:
+            cur.execute("update facts set state = 'superseded' where id = %s", (row["id"],))
+    if not egfr["available"] or any(r["input_fact"] == current_input for r in existing):
+        return
+    creatinine = egfr["creatinine"]
+    cur.execute(
+        """insert into facts(patient_id, encounter_id, fact_type, assertion, code_system, code, display,
+                             raw_text, value_num, unit, dose, effective_at, state, confidence, source, created_by)
+           values (%s, %s, 'lab_result', 'present', 'LOINC', %s, 'eGFR (CKD-EPI 2021)', %s, %s, %s, %s, %s,
+                   'verified', 1, 'manual', 'system:metric')""",
+        (state.patient["id"], creatinine["encounter_id"], EGFR_LOINC,
+         f"computed from creatinine {float(creatinine['value_num']):g} mg/dL",
+         egfr["value"], EGFR_UNIT,
+         {"formula": "CKD-EPI 2021", "input_fact": str(creatinine["id"]),
+          "inputs": {"creatinine_mg_dl": float(creatinine["value_num"]), "age": egfr["age"], "sex": egfr["sex"]}},
+         _when(creatinine)))
+
+
+# ---------------------------------------------------------------- rules
+
+def _alert(rule: dict, severity: str, message: str, facts: list[dict], steps: list[dict], conclusion: str) -> dict:
+    return {
+        "rule_id": rule["id"], "severity": severity, "message": message,
+        "trigger_fact_ids": [f["id"] for f in facts],
+        "trace": {"rule": {"id": rule["id"], "title": rule["title"], "version": rule["version"],
+                           "source": rule["guideline_source"]},
+                  "steps": steps, "conclusion": conclusion},
+    }
+
+
+def rule_lab_contraindication(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    spec, steps, facts = rule["rule"], [], []
+    for condition in spec.get("all", []):
+        if "fact" in condition:
+            wanted = condition["fact"]
+            meds = state.meds_of(wanted["generic"])
+            if not meds:
+                return []
+            med = meds[0]
+            brand = (med["dose"] or {}).get("brand")
+            mapping = f" (dictionary: {brand} → {wanted['generic']})" if brand and brand != wanted["generic"] else ""
+            steps.append({"label": "Medication on list", "result": True, "fact_id": med["id"],
+                          "evidence": _evidence(med) + mapping})
+            facts.append(med)
+        elif condition.get("metric") == "egfr":
+            egfr = ctx["egfr"]
+            if not egfr["available"]:
+                ctx["notes"].append({"rule_id": rule["id"], "kind": "metric_unavailable", "message": egfr["reason"]})
+                return []
+            creatinine = egfr["creatinine"]
+            steps.append({"label": "Computed eGFR", "value": egfr["value"], "unit": "mL/min/1.73 m²",
+                          "formula": "CKD-EPI 2021",
+                          "inputs": [{"name": "creatinine", "value": float(creatinine["value_num"]), "unit": "mg/dL",
+                                      "fact_id": creatinine["id"], "source": _source(creatinine)},
+                                     {"name": "age", "value": egfr["age"]}, {"name": "sex", "value": egfr["sex"]}]})
+            passed = OPS[condition["op"]](egfr["value"], condition["value"])
+            steps.append({"label": f"eGFR {condition['op']} {condition['value']}", "result": passed})
+            if not passed:
+                return []
+            facts.append(creatinine)
+    if not facts:
+        return []
+    message = spec.get("message") or rule["title"]
+    return [_alert(rule, rule["severity"], message, facts, steps, message)]
+
+
+def rule_interaction(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    floor = SEVERITY_ORDER.index(rule["rule"].get("min_severity", "moderate"))
+    by_generic = {_generic(f): f for f in state.current_meds}
     alerts = []
-    facts = patient_data.facts
-    
-    # Pre-filter facts
-    meds = [f for f in facts if f['fact_type'] == 'medication' and f['assertion'] == 'present']
-    creatinines = [f for f in facts if f['fact_type'] == 'lab_result' and ('creatinine' in f['display'].lower() or f['code'] == '2160-0' or f['display'].lower() == 'scr')]
-    allergies = [f for f in facts if f['fact_type'] == 'allergy' and f['assertion'] == 'present']
-    denied_allergies = [f for f in facts if f['fact_type'] == 'allergy' and f['assertion'] == 'denied']
-    
-    # 1. eGFR / Metformin Check
-    if creatinines:
-        latest_scr_fact = creatinines[0]
-        scr = float(latest_scr_fact['value_num']) if latest_scr_fact['value_num'] else 1.0
-        egfr = calculate_egfr(scr, patient_data.age, patient_data.sex)
-        
-        metformin_meds = [m for m in meds if m['code'] == 'metformin' or 'metformin' in m['display'].lower() or m['code'] == '6809']
-        
-        if egfr < 30 and metformin_meds:
-            metformin_fact = metformin_meds[0]
-            trace = {
-                "logic": "IF eGFR < 30 AND Medication = Metformin THEN Contraindicated",
-                "variables": {"eGFR": egfr, "creatinine_value": scr, "age": patient_data.age, "sex": patient_data.sex},
-                "steps": [
-                    f"Identified verified serum creatinine: {scr} mg/dL",
-                    f"Computed eGFR using CKD-EPI 2021: {egfr} mL/min/1.73m²",
-                    "Detected active Metformin prescription",
-                    "Triggered KDIGO rule due to eGFR < 30"
-                ]
-            }
-            alerts.append({
-                "rule_id": "KDIGO-METFORMIN-EGFR30",
-                "severity": "critical",
-                "message": f"Critical: Metformin is contraindicated with eGFR < 30 (Current eGFR: {egfr} mL/min/1.73m²)",
-                "trigger_fact_ids": [str(latest_scr_fact['id']), str(metformin_fact['id'])],
-                "trace": trace
-            })
-
-    # 2. Contradiction check: patient denies an allergy they historically have
-    for da in denied_allergies:
-        da_code = da.get('code')
-        da_display = da.get('display', '').lower()
-        # Find if this allergy exists in historical facts as 'present'
-        # For simplicity, match by code or a simple text match
-        for a in allergies:
-            a_code = a.get('code')
-            a_display = a.get('display', '').lower()
-            if (da_code and a_code and da_code == a_code) or (da_display in a_display or a_display in da_display) or (da_code == 'allergies' and allergies):
-                trace = {
-                    "logic": "IF patient denies allergy AND allergy exists in history THEN Contradiction",
-                    "variables": {"denied_text": da['raw_text'], "historical_allergy": a['display']},
-                    "steps": ["Detected denied allergy in current encounter", "Found conflicting allergy in historical record"]
-                }
-                alerts.append({
-                    "rule_id": "CONTRADICTION-ALLERGY",
-                    "severity": "moderate",
-                    "message": f"Contradiction: Patient claims {da['raw_text']}, but history shows allergy to {a['display']}.",
-                    "trigger_fact_ids": [str(da['id']), str(a['id'])],
-                    "trace": trace
-                })
-                break
-                
-    # 3. Allergy conflict check: prescribed drug belongs to allergy group
-    # A simple cross check (using DB is better but let's do an in-memory mock check if DB is not reachable or fetch from DB in evaluate logic)
-    # The prompt says S2 has Mox (amoxicillin) and allergy is Penicillin.
-    # Group: penicillins -> amoxicillin. Let's just do a manual rule for the demo or fetch from DB.
-    # Actually, the repo should fetch `allergy_groups`. I will implement the fetch in the repo.
-
-    # 4. Duplicate therapy (paracetamol x2)
-    # 5. Dose-range alert
-    # 6. Interaction alert
-
+    for a, b in combinations(sorted(by_generic), 2):
+        row = ctx["interactions"].get((a, b))
+        if not row or SEVERITY_ORDER.index(row["severity"]) < floor:
+            continue
+        pair = [by_generic[a], by_generic[b]]
+        message = f"{row['severity'].capitalize()} interaction: {a} + {b} — {row['description']}"
+        steps = [{"label": f"On current list: {g}", "result": True, "fact_id": f["id"], "evidence": _evidence(f)}
+                 for g, f in zip((a, b), pair)]
+        steps.append({"label": "Interaction table lookup", "result": True,
+                      "evidence": f"{a} + {b}: {row['severity']} ({row['source']} {row['source_ref'] or ''})".strip()})
+        alerts.append(_alert(rule, INTERACTION_SEVERITY[row["severity"]], message, pair, steps, message))
     return alerts
 
-class SafetyEngineRepository:
-    def get_patient_health_data(self, patient_id: str) -> Optional[PatientHealthData]:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT dob, sex FROM patients WHERE id = %s", (patient_id,))
-                patient = cur.fetchone()
-                if not patient:
-                    return None
-                
-                dob, sex = patient
-                today = date.today()
-                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-                
-                cur.execute("""
-                    SELECT id, fact_type, display, value_num, unit, code, code_system, state, created_at, assertion, raw_text, dose, encounter_id
-                    FROM facts
-                    WHERE patient_id = %s AND state IN ('verified', 'clinician_confirmed')
-                    ORDER BY created_at DESC
-                """, (patient_id,))
-                facts = cur.fetchall()
-                
-                fact_dicts = []
-                for f in facts:
-                    fact_dicts.append({
-                        'id': f[0], 'fact_type': f[1], 'display': f[2], 'value_num': f[3],
-                        'unit': f[4], 'code': f[5], 'system': f[6], 'state': f[7],
-                        'created_at': f[8], 'assertion': f[9], 'raw_text': f[10], 'dose': f[11], 'encounter_id': f[12]
-                    })
-                        
-                return PatientHealthData(age, sex, fact_dicts)
 
-    def get_allergy_conflicts(self, patient_id: str) -> List[Dict]:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                # Find if any active medication generic code is in an allergy group where the patient has a historical allergy
-                cur.execute("""
-                    SELECT f_med.id, f_alg.id, f_med.display, f_alg.display
-                    FROM facts f_med
-                    JOIN allergy_groups ag ON f_med.code = ag.member_generic
-                    JOIN allergy_groups ag2 ON ag.group_name = ag2.group_name
-                    JOIN facts f_alg ON f_alg.code = ag2.member_generic OR f_alg.code = ag2.group_name OR f_alg.display ilike '%' || ag2.member_generic || '%'
-                    WHERE f_med.patient_id = %s 
-                      AND f_alg.patient_id = %s
-                      AND f_med.fact_type = 'medication' AND f_med.assertion = 'present'
-                      AND f_alg.fact_type = 'allergy' AND f_alg.assertion = 'present'
-                      AND f_med.state IN ('verified', 'clinician_confirmed')
-                      AND f_alg.state IN ('verified', 'clinician_confirmed')
-                """, (patient_id, patient_id))
-                return [{"med_id": r[0], "alg_id": r[1], "med_display": r[2], "alg_display": r[3]} for r in cur.fetchall()]
-
-    def get_interactions(self, patient_id: str) -> List[Dict]:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT f1.id, f2.id, f1.display, f2.display, di.severity, di.description
-                    FROM facts f1
-                    JOIN facts f2 ON f1.patient_id = f2.patient_id AND f1.id < f2.id
-                    JOIN drug_interactions di ON 
-                        (f1.code = di.drug_a AND f2.code = di.drug_b) OR 
-                        (f1.code = di.drug_b AND f2.code = di.drug_a)
-                    WHERE f1.patient_id = %s 
-                      AND f1.fact_type = 'medication' AND f1.assertion = 'present'
-                      AND f2.fact_type = 'medication' AND f2.assertion = 'present'
-                      AND f1.state IN ('verified', 'clinician_confirmed')
-                      AND f2.state IN ('verified', 'clinician_confirmed')
-                """, (patient_id,))
-                return [{"med1_id": r[0], "med2_id": r[1], "med1": r[2], "med2": r[3], "severity": r[4], "desc": r[5]} for r in cur.fetchall()]
-
-    def get_duplicate_therapies(self, patient_id: str) -> List[Dict]:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT f1.id, f2.id, f1.display, f2.display, f1.code
-                    FROM facts f1
-                    JOIN facts f2 ON f1.patient_id = f2.patient_id AND f1.id < f2.id AND f1.code = f2.code
-                    WHERE f1.patient_id = %s 
-                      AND f1.fact_type = 'medication' AND f1.assertion = 'present'
-                      AND f2.fact_type = 'medication' AND f2.assertion = 'present'
-                      AND f1.state IN ('verified', 'clinician_confirmed')
-                      AND f2.state IN ('verified', 'clinician_confirmed')
-                """, (patient_id,))
-                return [{"med1_id": r[0], "med2_id": r[1], "med1": r[2], "med2": r[3], "code": r[4]} for r in cur.fetchall()]
-                
-    def get_dose_warnings(self, patient_id: str) -> List[Dict]:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT f.id, f.display, f.code, (f.dose->>'daily_mg')::numeric, dl.max_daily_mg
-                    FROM facts f
-                    JOIN dose_limits dl ON f.code = dl.generic
-                    WHERE f.patient_id = %s 
-                      AND f.fact_type = 'medication' AND f.assertion = 'present'
-                      AND f.state IN ('verified', 'clinician_confirmed')
-                      AND f.dose->>'daily_mg' IS NOT NULL
-                      AND (f.dose->>'daily_mg')::numeric > dl.max_daily_mg
-                """, (patient_id,))
-                return [{"med_id": r[0], "display": r[1], "code": r[2], "daily_mg": float(r[3]), "max_mg": float(r[4])} for r in cur.fetchall()]
-
-    def save_alerts(self, patient_id: str, encounter_id: Optional[str], alerts: List[Dict]):
-        if not alerts:
-            return
-            
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                for alert in alerts:
-                    cur.execute("""
-                        SELECT id FROM safety_alerts 
-                        WHERE patient_id = %s AND rule_id = %s AND status = 'open'
-                    """, (patient_id, alert['rule_id']))
-                    existing = cur.fetchone()
-                    
-                    if not existing:
-                        cur.execute("""
-                            INSERT INTO safety_alerts (id, patient_id, encounter_id, rule_id, severity, message, status, trigger_fact_ids, trace)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (
-                            str(uuid.uuid4()), patient_id, encounter_id, alert['rule_id'], alert['severity'], 
-                            alert['message'], 'open', alert['trigger_fact_ids'], json.dumps(alert['trace'])
-                        ))
-                conn.commit()
+def rule_duplicate(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    alerts = []
+    for generic in sorted({_generic(f) for f in state.current_meds}):
+        products = state.meds_of(generic)
+        if len(products) < 2:
+            continue
+        names = " + ".join(((f["dose"] or {}).get("brand") or generic).capitalize() for f in products)
+        message = f"Duplicate therapy: {names} both contain {generic}"
+        steps = [{"label": f"Contains {generic}", "result": True, "fact_id": f["id"], "evidence": _evidence(f)}
+                 for f in products]
+        alerts.append(_alert(rule, rule["severity"], message, products, steps, message))
+    return alerts
 
 
-def evaluate_patient_safety(patient_id: str, encounter_id: Optional[str] = None):
-    logger.info(f"Evaluating safety rules for patient {patient_id}")
-    repo = SafetyEngineRepository()
-    patient_data = repo.get_patient_health_data(patient_id)
-    
-    if not patient_data:
-        logger.warning(f"Could not load data for patient {patient_id}")
-        return
-        
-    alerts = evaluate_safety_rules(patient_data, encounter_id)
-    
-    # DB-based rules
-    # 3. Allergy Conflicts
-    conflicts = repo.get_allergy_conflicts(patient_id)
-    for c in conflicts:
-        alerts.append({
-            "rule_id": "ALLERGY-CONFLICT",
-            "severity": "critical",
-            "message": f"Critical: Prescribed {c['med_display']} conflicts with documented allergy to {c['alg_display']}.",
-            "trigger_fact_ids": [str(c['med_id']), str(c['alg_id'])],
-            "trace": {"logic": "Allergy cross-reactivity check", "variables": {}, "steps": []}
-        })
-        
-    # 4. Interactions
-    interactions = repo.get_interactions(patient_id)
-    for i in interactions:
-        alerts.append({
-            "rule_id": "DRUG-INTERACTION",
-            "severity": i["severity"],
-            "message": f"Interaction ({i['severity']}): {i['med1']} and {i['med2']} - {i['desc']}",
-            "trigger_fact_ids": [str(i['med1_id']), str(i['med2_id'])],
-            "trace": {"logic": "Drug interaction check", "variables": {}, "steps": []}
-        })
-        
-    # 5. Duplicate Therapy
-    duplicates = repo.get_duplicate_therapies(patient_id)
-    for d in duplicates:
-        alerts.append({
-            "rule_id": "DUPLICATE-THERAPY",
-            "severity": "moderate",
-            "message": f"Duplicate Therapy: Both {d['med1']} and {d['med2']} contain {d['code']}.",
-            "trigger_fact_ids": [str(d['med1_id']), str(d['med2_id'])],
-            "trace": {"logic": "Duplicate generic check", "variables": {}, "steps": []}
-        })
-        
-    # 6. Dose Warnings
-    doses = repo.get_dose_warnings(patient_id)
-    for d in doses:
-        alerts.append({
-            "rule_id": "DOSE-EXCEEDED",
-            "severity": "high",
-            "message": f"Dose Exceeded: {d['display']} daily dose {d['daily_mg']}mg exceeds max limit {d['max_mg']}mg.",
-            "trigger_fact_ids": [str(d['med_id'])],
-            "trace": {"logic": "Max dose check", "variables": {}, "steps": []}
-        })
-    
-    repo.save_alerts(patient_id, encounter_id, alerts)
-    if alerts:
-        logger.warning(f"Fired {len(alerts)} alerts for patient {patient_id}")
+def rule_dose(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    alerts = []
+    for generic, limit in ctx["dose_limits"].items():
+        products = state.meds_of(generic)
+        dosed = [f for f in products if (f["dose"] or {}).get("daily_mg")]
+        if not dosed:
+            continue
+        total = sum(f["dose"]["daily_mg"] for f in dosed)
+        steps = [{"label": f"{(f['dose'].get('brand') or generic)}: {f['dose']['amount']:g} mg × {f['dose']['times_per_day']}/day",
+                  "value": f["dose"]["daily_mg"], "unit": "mg/day", "fact_id": f["id"], "evidence": _evidence(f)}
+                 for f in dosed]
+        steps.append({"label": f"Total {generic} per day", "value": total, "unit": "mg/day"})
+        exceeded = total > float(limit["max_daily_mg"])
+        steps.append({"label": f"Total > {float(limit['max_daily_mg']):g} mg/day ({limit['source']})", "result": exceeded})
+        if exceeded:
+            message = (f"Daily dose exceeded: {generic} {total:g} mg/day is above the "
+                       f"{float(limit['max_daily_mg']):g} mg/day limit")
+            alerts.append(_alert(rule, rule["severity"], message, dosed, steps, message))
+    return alerts
+
+
+def rule_allergy(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    alerts, groups = [], ctx["allergy_groups"]
+    for med in state.current_meds:
+        generic = _generic(med)
+        for allergy in state.allergies_present:
+            substance = _generic(allergy)
+            if substance == "*":
+                continue
+            shared = groups.get(generic) if groups.get(generic) and groups.get(generic) == groups.get(substance) else None
+            if generic != substance and not shared:
+                continue
+            why = f"both belong to the {shared} group" if shared and generic != substance else "same substance"
+            message = f"Allergy conflict: {generic} prescribed, but an allergy to {substance} is on record ({why})"
+            steps = [{"label": "Allergy on record", "result": True, "fact_id": allergy["id"], "evidence": _evidence(allergy)},
+                     {"label": "Medication on list", "result": True, "fact_id": med["id"], "evidence": _evidence(med)},
+                     {"label": f"Cross-reactivity: {why}", "result": True}]
+            alerts.append(_alert(rule, rule["severity"], message, [allergy, med], steps, message))
+    return alerts
+
+
+def rule_contradiction(rule: dict, state: PatientState, ctx: dict) -> list[dict]:
+    """Only an explicit denial can contradict the record; "not mentioned" never does."""
+    alerts, groups = [], ctx["allergy_groups"]
+
+    def clash(present: dict, denied: dict, what: str) -> None:
+        message = (f"Record contradiction: {what} is on record ({_when(present):%b %Y}) "
+                   f"but was denied on {_when(denied):%d %b %Y}")
+        steps = [{"label": "On record", "result": True, "fact_id": present["id"], "evidence": _evidence(present)},
+                 {"label": "Later denied", "result": True, "fact_id": denied["id"], "evidence": _evidence(denied)},
+                 {"label": "Both cannot be true — doctor must choose", "result": True}]
+        alerts.append(_alert(rule, rule["severity"], message, [present, denied], steps, message))
+
+    for present in state.allergies_present:
+        substance = _generic(present)
+        for denied in state.allergies_denied:
+            if _when(denied) <= _when(present):
+                continue
+            other = _generic(denied)
+            same_group = groups.get(substance) and groups.get(substance) == groups.get(other)
+            if other == "*" or other == substance or same_group:
+                clash(present, denied, f"{substance} allergy")
+                break
+    by_code = lambda kind, assertion: [f for f in state.facts if f["fact_type"] == kind
+                                       and f["assertion"] == assertion and f["code"]]
+    for present in by_code("diagnosis", "present"):
+        for denied in by_code("diagnosis", "denied"):
+            if denied["code"] == present["code"] and _when(denied) > _when(present):
+                clash(present, denied, present["display"])
+                break
+    return alerts
+
+
+RULE_TYPES = {
+    "lab_contraindication": rule_lab_contraindication,
+    "interaction": rule_interaction,
+    "duplicate": rule_duplicate,
+    "dose": rule_dose,
+    "allergy": rule_allergy,
+    "contradiction": rule_contradiction,
+}
+
+
+# ---------------------------------------------------------------- entry point
+
+def load_state(cur, patient_id) -> Optional[PatientState]:
+    cur.execute("select id, dob, sex, full_name from patients where id = %s", (patient_id,))
+    patient = cur.fetchone()
+    if not patient:
+        return None
+    cur.execute(
+        """select f.*, d.original_name as document_name from facts f
+           left join source_documents d on d.id = f.document_id
+           where f.patient_id = %s and f.state in ('verified','clinician_confirmed')""", (patient_id,))
+    return PatientState(patient, cur.fetchall())
+
+
+def evaluate(cur, patient_id, encounter_id=None, dry_run: bool = False) -> dict:
+    """Run every active rule for one patient. Idempotent: re-running never duplicates alerts.
+
+    Returns {"fired": [...], "notes": [...]}; notes explain rules that could not be
+    evaluated (e.g. eGFR unavailable) so "no alert" is never mistaken for "safe".
+    """
+    state = load_state(cur, patient_id)
+    if state is None:
+        return {"fired": [], "notes": []}
+    egfr = compute_egfr(state)
+    if not dry_run:
+        _persist_egfr(cur, state, egfr)
+
+    cur.execute("select drug_a, drug_b, severity, description, source, source_ref from drug_interactions")
+    interactions = {(r["drug_a"], r["drug_b"]): r for r in cur.fetchall()}
+    cur.execute("select generic, max_daily_mg, source from dose_limits where route = 'PO' and population = 'adult'")
+    dose_limits = {r["generic"]: r for r in cur.fetchall()}
+    cur.execute("select member_generic, group_name from allergy_groups")
+    allergy_groups = {r["member_generic"]: r["group_name"] for r in cur.fetchall()}
+    ctx = {"egfr": egfr, "interactions": interactions, "dose_limits": dose_limits,
+           "allergy_groups": allergy_groups, "notes": []}
+
+    cur.execute("select * from safety_rules where active order by id")
+    fired = []
+    for rule in cur.fetchall():
+        handler = RULE_TYPES.get(rule["rule_type"])
+        if handler:
+            fired.extend(handler(rule, state, ctx))
+    for alert in fired:
+        alert["dedupe_key"] = alert["rule_id"] + ":" + ",".join(sorted(str(i) for i in alert["trigger_fact_ids"]))
+    if dry_run:
+        return {"fired": fired, "notes": ctx["notes"]}
+
+    for alert in fired:
+        cur.execute(
+            """insert into safety_alerts(patient_id, encounter_id, rule_id, severity, message, status,
+                                         trigger_fact_ids, trace, dedupe_key)
+               values (%s, %s, %s, %s, %s, 'open', %s::uuid[], %s, %s)
+               on conflict (patient_id, dedupe_key) where status <> 'resolved' do nothing""",
+            (patient_id, encounter_id, alert["rule_id"], alert["severity"], alert["message"],
+             [str(i) for i in alert["trigger_fact_ids"]], alert["trace"], alert["dedupe_key"]))
+    # an open alert whose condition no longer holds (e.g. a fact was rejected) closes itself
+    live_keys = [a["dedupe_key"] for a in fired]
+    cur.execute(
+        """update safety_alerts set status = 'resolved', resolved_at = now(),
+                  override_reason = 'auto-resolved: the triggering condition no longer holds'
+           where patient_id = %s and status = 'open' and not (dedupe_key = any(%s::text[]))""",
+        (patient_id, live_keys))
+    if fired:
+        logger.info("Patient %s: %d alert(s) active", patient_id, len(fired))
+    return {"fired": fired, "notes": ctx["notes"]}

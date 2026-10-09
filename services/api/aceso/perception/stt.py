@@ -1,97 +1,108 @@
-import os
-import json
-import logging
-from enum import Enum
+"""Speech perception: audio (or a typed transcript) -> timed segments."""
+import math
+import re
 
-class SpeakerRole(str, Enum):
-    DOCTOR = "doctor"
-    PATIENT = "patient"
+import httpx
 
-try:
-    from faster_whisper import WhisperModel
-except ImportError:
-    WhisperModel = None
+from aceso.config import settings
 
-logger = logging.getLogger(__name__)
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac"}
+TRANSCRIPT_EXTENSIONS = {".txt"}
+WORDS_PER_SECOND = 2.5
+MAX_SEGMENT_SECONDS = 15
 
-# Initialize model once
-# Using "tiny" or "base" for faster local processing, assuming CPU
-_model = None
 
-def get_model():
-    global _model
-    if _model is None and WhisperModel is not None:
-        logger.info("Loading Whisper model...")
-        _model = WhisperModel("tiny", device="cpu", compute_type="int8")
-    return _model
+class STTError(RuntimeError):
+    pass
 
-def get_stt_config() -> dict:
-    vocab_path = os.path.join(os.path.dirname(__file__), "..", "ai", "vocabulary.json")
+
+def transcribe_audio(content: bytes, filename: str, vocabulary: tuple = ()) -> dict:
+    """Whisper via the OpenAI-compatible transcription API (Groq by default).
+
+    Language is auto-detected so code-mixed speech is not forced into one language.
+    `vocabulary` (our brand names) is passed as a spelling hint so "Telma" is not heard as "till my".
+    """
+    if settings.llm_mode == "onprem":
+        raise STTError("LLM_MODE=onprem: audio transcription needs an on-prem Whisper, which this "
+                       "prototype does not bundle. Upload a typed transcript (.txt) instead.")
+    if not settings.llm_api_key:
+        raise STTError("LLM_API_KEY is not set in .env")
     try:
-        with open(vocab_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
+        response = httpx.post(
+            f"{settings.llm_base_url.rstrip('/')}/audio/transcriptions",
+            headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+            files={"file": (filename, content)},
+            data={"model": settings.stt_model, "response_format": "verbose_json", "temperature": "0",
+                  "prompt": ("Doctor-patient consultation in India. Medicines: " + ", ".join(vocabulary))[:800],
+                  "timestamp_granularities[]": ["word", "segment"]},
+            timeout=180,
+        )
+    except httpx.HTTPError as exc:
+        raise STTError(f"Transcription service unreachable: {exc}") from exc
+    if response.status_code != 200:
+        raise STTError(f"Transcription HTTP {response.status_code}: {response.text[:300]}")
+    body = response.json()
+    segments = _sentences(body.get("words") or [], body.get("segments") or [])
+    if not segments:
+        raise STTError("No speech was recognised in this recording.")
+    return {"language": body.get("language"),
+            "duration_ms": int(float(body.get("duration") or 0) * 1000) or segments[-1]["end_ms"],
+            "segments": segments}
 
-def process_audio(payload: dict) -> dict:
-    file_path = payload.get("file_path")
-    if not file_path or not os.path.exists(file_path):
-        raise FileNotFoundError(f"Audio file not found: {file_path}")
-    
-    model = get_model()
-    if model is None:
-        # Fallback if whisper isn't installed
-        logger.warning("WhisperModel not available. Returning mock data.")
-        return {
-            "transcript": "Mock transcript because faster_whisper is missing.",
-            "segments": [{"start": 0, "end": 2, "text": "Mock transcript", "speaker": SpeakerRole.DOCTOR.value}]
-        }
 
-    # Code-mixed multilingual scribe configuration
-    config = get_stt_config()
-    initial_prompt = config.get("stt_initial_prompt", "Medical consultation.")
-    
-    segments, info = model.transcribe(
-        file_path, 
-        beam_size=5, 
-        word_timestamps=True,
-        initial_prompt=initial_prompt,
-        language="ta" # Enforce Tamil-English language-aware decoding natively
-    )
-    
-    transcript_segments = []
-    full_text = []
-    
-    for i, segment in enumerate(segments):
-        full_text.append(segment.text)
-        words = []
-        if segment.words:
-            for word in segment.words:
-                words.append({
-                    "start": word.start,
-                    "end": word.end,
-                    "word": word.word
-                })
-        
-        # Heuristic speaker diarization based on clinical context
-        # A real implementation would use a dedicated diarization model like pyannote.audio
-        text_lower = segment.text.lower()
-        if "?" in text_lower or any(kw in text_lower for kw in ["prescribe", "continue", "repeat", "doctor"]):
-            speaker = SpeakerRole.DOCTOR
-        else:
-            speaker = SpeakerRole.PATIENT
-        
-        transcript_segments.append({
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text,
-            "speaker": speaker.value,
-            "words": words
-        })
-        
-    return {
-        "transcript": " ".join(full_text),
-        "language": info.language,
-        "language_probability": info.language_probability,
-        "segments": transcript_segments
-    }
+def _sentences(words: list[dict], whisper_segments: list[dict]) -> list[dict]:
+    """Cut the transcript into sentence-sized segments from word timestamps.
+
+    Whisper's own segments can span a whole consult; a fact should point at the
+    sentence that states it, so we split on sentence ends (or every ~15 s).
+    """
+    def confidence_at(second: float):
+        for seg in whisper_segments:
+            if seg["start"] <= second <= seg["end"] and seg.get("avg_logprob") is not None:
+                return round(math.exp(seg["avg_logprob"]), 3)
+        return None
+
+    if not words:  # no word timing: fall back to Whisper's segments as they are
+        return [{"speaker": "unknown", "start_ms": int(seg["start"] * 1000), "end_ms": int(seg["end"] * 1000),
+                 "text": seg["text"].strip(), "confidence": confidence_at(seg["start"])}
+                for seg in whisper_segments if (seg.get("text") or "").strip()]
+    segments, current = [], []
+    for word in words:
+        current.append(word)
+        if word["word"].rstrip().endswith((".", "?", "!")) or word["end"] - current[0]["start"] >= MAX_SEGMENT_SECONDS:
+            segments.append(current)
+            current = []
+    if current:
+        segments.append(current)
+    return [{"speaker": "unknown", "start_ms": int(group[0]["start"] * 1000), "end_ms": int(group[-1]["end"] * 1000),
+             "text": " ".join(w["word"].strip() for w in group), "confidence": confidence_at(group[0]["start"])}
+            for group in segments]
+
+
+_LINE = re.compile(
+    r"^\s*(?:\[(\d+):(\d{2})(?:\s*-\s*(\d+):(\d{2}))?\]\s*)?(?:(doctor|dr|patient|pt|nurse)\s*:\s*)?(.+?)\s*$",
+    re.I)
+
+
+def parse_transcript(text: str) -> dict:
+    """Typed transcript, one utterance per line: `[00:41-00:45] Doctor: Continue Glycomet 500.`
+
+    Timestamps and speaker are optional; missing times are estimated from word count.
+    """
+    segments, clock = [], 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        m = _LINE.match(line)
+        start_min, start_sec, end_min, end_sec, speaker, utterance = m.groups()
+        start = (int(start_min) * 60 + int(start_sec)) * 1000 if start_min else clock
+        estimated = int(max(1.5, len(utterance.split()) / WORDS_PER_SECOND) * 1000)
+        end = (int(end_min) * 60 + int(end_sec)) * 1000 if end_min else start + estimated
+        role = (speaker or "unknown").lower()
+        role = {"dr": "doctor", "pt": "patient"}.get(role, role)
+        segments.append({"speaker": role, "start_ms": start, "end_ms": max(end, start + 500),
+                         "text": utterance, "confidence": 1.0})
+        clock = segments[-1]["end_ms"] + 300
+    if not segments:
+        raise STTError("The transcript file is empty.")
+    return {"language": "typed", "duration_ms": segments[-1]["end_ms"], "segments": segments}

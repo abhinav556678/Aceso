@@ -5,20 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aceso"
 version = "0.1.0"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic",
     "pydantic-settings",
     "psycopg[binary,pool]",
-    "supabase",
-    "faster-whisper",
-    "pytesseract",
-    "pdf2image",
-    "pillow",
-    "pytest",
-    "python-multipart"
+    "python-multipart",
+    "httpx",
+    "pymupdf",
+    "rapidfuzz",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pgserver",      # embedded Postgres + pgvector for tests and offline demos
+]
+
+[tool.setuptools.packages.find]
+include = ["aceso*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

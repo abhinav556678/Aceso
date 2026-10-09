@@ -1,32 +1,35 @@
-from fastapi import FastAPI
-import threading
+import logging
 from contextlib import asynccontextmanager
-from aceso.routes import upload, signoff, search, patient, live, export
-from aceso.workers.worker import run_worker_loop
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from aceso.config import settings
+from aceso.db import close_pool, open_pool
+from aceso.routes import admin, export, ingest, patients, review
+
+logging.basicConfig(level=logging.INFO)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: connect to db, start background workers
-    print("Starting up Aceso API...")
-    from aceso.db import pool
-    pool.open()
-    worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
-    worker_thread.start()
+    open_pool()
     yield
-    # Shutdown
-    print("Shutting down Aceso API...")
-    pool.close()
+    close_pool()
+
 
 app = FastAPI(title="Aceso API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.web_origin.split(",")],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app.include_router(upload.router, prefix="/api")
-app.include_router(signoff.router, prefix="/api/encounters")
-app.include_router(search.router, prefix="/api/search")
-app.include_router(patient.router, prefix="/api/patients")
-app.include_router(live.router, prefix="/api/live")
-app.include_router(export.router, prefix="/api/encounters")
+for module in (patients, ingest, review, export, admin):
+    app.include_router(module.router, prefix="/api")
+
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-

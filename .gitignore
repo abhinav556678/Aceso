@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.local
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# local runtime data
+.localdb/
+services/api/uploads/
+
+# supabase cli
+supabase/.temp/
+
+# node
+node_modules/
+.next/
+
+# generated demo upload samples (rebuilt by scripts/setup_db.py)
+data/synthetic/
