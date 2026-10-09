@@ -20,19 +20,26 @@ LOINC_DB = {
     "Cholesterol": "2093-3"
 }
 
+import json
+import os
+
 SNOMED_DB = {
     "Hypertension": "38341003",
-    "raththam kothippu": "38341003", # Tamil colloquial
     "Diabetes Type 2": "44054006",
-    "sakkara vyadhi": "44054006", # Tamil colloquial
-    "sugar complaint": "44054006",
     "Pain": "22253000",
-    "vali": "22253000", # Tamil colloquial
     "Fever": "386661006",
-    "kaichal": "386661006", # Tamil colloquial
     "Cough": "49727002",
-    "irumal": "49727002" # Tamil colloquial
 }
+
+# Dynamically load colloquial terms
+VOCAB_PATH = os.path.join(os.path.dirname(__file__), "vocabulary.json")
+try:
+    with open(VOCAB_PATH, "r", encoding="utf-8") as f:
+        vocab_config = json.load(f)
+        for term, code in vocab_config.get("tamil_snomed_map", {}).items():
+            SNOMED_DB[term] = code
+except Exception as e:
+    logger.warning(f"Could not load dynamic vocabulary config: {e}")
 
 def normalize_term(term: str, fact_type: str) -> dict:
     """

@@ -28,10 +28,17 @@ def verify_numbers_and_negations(text: str, facts: List[Dict[str, Any]]):
             raise SoapGuardError(f"Guard failed: Number {num} found in SOAP note but not in source facts.")
             
     # 2. Negation check
-    negation_words = [
-        'no ', 'not ', 'denies', 'denied', 'without',
-        'illai', 'illa', 'kedaiyathu', 'nahi', 'na '
-    ]
+    import os
+    import json
+    
+    negation_words = ['no ', 'not ', 'denies', 'denied', 'without']
+    vocab_path = os.path.join(os.path.dirname(__file__), "vocabulary.json")
+    try:
+        with open(vocab_path, "r", encoding="utf-8") as f:
+            negation_words = json.load(f).get("negation_cues", negation_words)
+    except:
+        pass
+        
     has_negation_in_text = any(n in text.lower() for n in negation_words)
     
     has_negation_in_facts = False

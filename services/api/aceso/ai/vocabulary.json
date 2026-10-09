@@ -1,0 +1,15 @@
+{
+    "tamil_snomed_map": {
+        "raththam kothippu": "38341003",
+        "sakkara vyadhi": "44054006",
+        "sugar complaint": "44054006",
+        "vali": "22253000",
+        "kaichal": "386661006",
+        "irumal": "49727002"
+    },
+    "negation_cues": [
+        "no ", "not ", "denies", "denied", "without",
+        "illai", "illa", "kedaiyathu", "nahi", "na "
+    ],
+    "stt_initial_prompt": "Code-mixed medical consultation in English and Tamil. Words like vali, marunthu, illa, sakkara vyadhi."
+}

@@ -32,7 +32,7 @@ def test_signoff_success(mock_pool):
     mock_cur.fetchall.return_value = []
     
     # 2. note row fetched
-    mock_cur.fetchone.return_value = ({"a":"1"}, {"b":"2"}, {"c":"3"}, [{"text": "repeat labs", "fact_ids": []}])
+    mock_cur.fetchone.return_value = ({"subjective": "mock"}, {"objective": "mock"}, {"assessment": "mock"}, [{"text": "repeat labs", "fact_ids": []}])
     
     response = client.post(
         "/api/encounters/e123/signoff",
