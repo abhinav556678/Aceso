@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        @font-face {
+            font-family: 'NotoSans';
+            src: url('{{ font_dir }}/NotoSans-Regular.ttf');
+        }
+        @font-face {
+            font-family: 'NotoSansDevanagari';
+            src: url('{{ font_dir }}/NotoSansDevanagari-Regular.ttf');
+        }
+        @font-face {
+            font-family: 'NotoSansTamil';
+            src: url('{{ font_dir }}/NotoSansTamil-Regular.ttf');
+        }
+        body { font-family: 'NotoSans', 'NotoSansDevanagari', 'NotoSansTamil', sans-serif; font-size: 14px; }
+        h1 { color: #2563eb; }
+        .section { margin-bottom: 20px; }
+        .title { font-weight: bold; font-size: 1.2em; color: #475569; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; margin-bottom: 10px; }
+        li { margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1>{{ t.title }}</h1>
+    <div class="section">
+        <p><b>{{ t.patient }}:</b> {{ name }} &nbsp;&nbsp; <b>{{ t.age }}:</b> {{ age }} &nbsp;&nbsp; <b>{{ t.gender }}:</b> {{ sex }}</p>
+        <p><b>{{ t.date }}:</b> {{ date.strftime('%Y-%m-%d') }}</p>
+    </div>
+    
+    <div class="section">
+        <div class="title">{{ t.conditions }}</div>
+        <ul>
+        {% for item in conditions %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
+        </ul>
+    </div>
+    
+    <div class="section">
+        <div class="title">{{ t.medications }}</div>
+        <ul>
+        {% for item in medications %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
+        </ul>
+    </div>
+    
+    <div class="section">
+        <div class="title">{{ t.allergies }}</div>
+        <ul>
+        {% for item in allergies %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
+        </ul>
+    </div>
+    
+    <div class="section">
+        <div class="title">{{ t.plan }}</div>
+        <ul>
+        {% for item in plan_items %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

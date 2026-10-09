@@ -112,9 +112,13 @@ def process_job(conn, job: dict):
         else:
             raise ValueError(f"Unknown job type: {job['type']}")
             
+        # Privacy Gateway: Redact PHI from outbound payload
+        from aceso.ai.privacy import redact_phi
+        safe_text_content = redact_phi(text_content)
+        
         # Fact Extraction
         from aceso.ai.verifier import verify_facts
-        extracted_facts = extract_facts(text_content, source_type)
+        extracted_facts = extract_facts(safe_text_content, source_type)
         
         # Fact Normalization & Conversion to dict
         structured_facts = []
