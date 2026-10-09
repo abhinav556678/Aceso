@@ -187,7 +187,7 @@ def test_photographed_report_is_read_by_ocr_and_a_smudged_row_is_not_guessed(cli
     creatinine = next(f for f in chart(client, 3)["facts"] if f["code"] == "2160-0")
     assert creatinine["state"] == "verified" and creatinine["value_num"] == 2.1 and creatinine["bbox"]["w"] < 0.1
     document = client.get(f"/api/documents/{creatinine['document_id']}", headers=NURSE).json()
-    assert document["ocr_engine"] == "rapidocr-onnx"
+    assert document["ocr_engine"].startswith("rapidocr-onnx")  # "+trocr-handwritten" where that reader is installed
     assert sum(1 for b in document["blocks"] if b["confidence"] < document["thresholds"]["unreadable_below"]) == 1
     page = client.get(f"/api/documents/{creatinine['document_id']}/pages/1.png", headers=NURSE)
     assert page.status_code == 200 and page.content[:4] == b"\x89PNG"

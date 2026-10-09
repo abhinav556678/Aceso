@@ -67,7 +67,10 @@ def verify(draft: dict, term: Terminology, sex: Optional[str]) -> dict:
 
     perception = [u.get("confidence") or DEFAULT_SEGMENT_CONFIDENCE for u in draft["units"]]
     if any(u.get("ocr") for u in draft["units"]):
-        if min(perception) < OCR_REVIEW_BELOW:
+        if any(u.get("handwriting") for u in draft["units"]):
+            # the handwriting model writes something plausible even when it is wrong: never auto-verify
+            reasons.append("read_by_handwriting_model")
+        elif min(perception) < OCR_REVIEW_BELOW:
             reasons.append("low_ocr_confidence")
         # a misread brand can fuzzy-match the wrong drug, so only a literal dictionary hit is trusted
         brand = (draft.get("dose") or {}).get("brand")

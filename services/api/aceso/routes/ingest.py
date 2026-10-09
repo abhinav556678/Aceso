@@ -1,6 +1,7 @@
 """Uploads, job progress and the source viewers (PDF page images, audio, transcript)."""
 import hashlib
 import os
+from functools import lru_cache
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
@@ -119,22 +120,27 @@ def document(document_id: str, user: dict = Depends(clinical)):
     return doc
 
 
-@router.get("/documents/{document_id}/pages/{page_no}.png")
-def document_page(document_id: str, page_no: int, user: dict = Depends(clinical)):
+@lru_cache(maxsize=48)
+def _page_png(document_id: str, page_no: int) -> bytes:
+    """A page image, kept in memory: fetching the file from the database again takes seconds."""
     with tx() as cur:
         blob = _blob(cur, document_id)
     if not blob:
-        raise HTTPException(404, "Document file not found")
+        raise LookupError(document_id)
     content = bytes(blob["content"])
+    if pdf.is_pdf(content):
+        return pdf.render_page_png(content, page_no)
+    if page_no == 1:
+        return ocr.page_png(content)  # an uploaded photo is its own single page
+    raise IndexError(page_no)
+
+
+@router.get("/documents/{document_id}/pages/{page_no}.png")
+def document_page(document_id: str, page_no: int, user: dict = Depends(clinical)):
     try:
-        if pdf.is_pdf(content):
-            png = pdf.render_page_png(content, page_no)
-        elif page_no == 1:
-            png = ocr.page_png(content)  # an uploaded photo is its own single page
-        else:
-            raise IndexError(page_no)
-    except IndexError:
-        raise HTTPException(404, "No such page")
+        png = _page_png(document_id, page_no)
+    except LookupError as exc:  # IndexError is a LookupError too
+        raise HTTPException(404, "No such page" if isinstance(exc, IndexError) else "Document file not found")
     return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 

@@ -256,6 +256,7 @@ function PatientChart() {
                     {job.result?.ocr && (
                       <span className="block text-slate-600">
                         Scan read by OCR on this machine · {job.result.ocr.rows} row(s)
+                        {job.result.ocr.handwriting > 0 && <> · {job.result.ocr.handwriting} handwritten, held for you to confirm</>}
                         {job.result.ocr.unreadable + job.result.ocr.low_confidence > 0 && (
                           <button onClick={() => setScanDoc(job.result.document_id)} className="ml-1 font-semibold hover:underline" style={{ color: 'var(--state-extracted)' }}>
                             ◔ {job.result.ocr.unreadable + job.result.ocr.low_confidence} could not be read reliably — show on page →

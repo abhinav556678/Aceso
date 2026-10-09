@@ -1,4 +1,6 @@
 import json
+import time
+import weakref
 from contextlib import contextmanager
 from typing import Optional
 
@@ -18,6 +20,23 @@ SYSTEM_ACTOR = "system:pipeline"
 _pool: Optional[ConnectionPool] = None
 
 
+IDLE_CHECK_SECONDS = 20
+_last_used: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _check_if_idle(conn) -> None:
+    """Test a connection before handing it out, but only after it has sat idle.
+
+    A connection that died with the network (Wi-Fi or VPN change) is then replaced
+    instead of failing the request. Testing every time would cost a round trip to
+    the database on each request, which is slow on a distant server.
+    """
+    now = time.monotonic()
+    if now - _last_used.get(conn, 0.0) > IDLE_CHECK_SECONDS:
+        ConnectionPool.check_connection(conn)
+    _last_used[conn] = now
+
+
 def open_pool(url: Optional[str] = None) -> ConnectionPool:
     global _pool
     if _pool is None:
@@ -26,6 +45,7 @@ def open_pool(url: Optional[str] = None) -> ConnectionPool:
             min_size=1,
             max_size=6,
             open=False,
+            check=_check_if_idle,
             # prepare_threshold=None keeps us compatible with Supabase's pooler.
             kwargs={"row_factory": dict_row, "prepare_threshold": None},
         )

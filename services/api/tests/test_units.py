@@ -164,6 +164,18 @@ def test_fact_from_a_low_confidence_scan_row_is_held():
     assert held["state"] == "extracted" and held["attention_reasons"] == ["low_ocr_confidence"]
 
 
+def test_fact_read_by_the_handwriting_model_is_never_auto_verified():
+    from aceso.perception import handwriting, ocr
+    box = lambda x, w: [[x, 100], [x + w, 100], [x + w, 130], [x, 130]]
+    row = ocr.group_rows([(box(100, 60), "Tab", 0.97), (box(180, 200), "Glycomet 500 BD", 0.96, "hand"),
+                           (box(60, 30), "", 0.0, "loose")], 1000, 1000)[0]
+    assert row["engine"] == handwriting.ENGINE and row["text"] == "Tab Glycomet 500 BD"
+    fact = verify({"fact_type": "symptom", "assertion": "present", "raw_text": "fever", "evidence_text": "fever",
+                   "units": [{"kind": "block", "confidence": 0.99, "ocr": True, "handwriting": True}],
+                   "attention_reasons": []}, Terminology(), None)
+    assert fact["state"] == "extracted" and fact["attention_reasons"] == ["read_by_handwriting_model"]
+
+
 def test_soap_guards():
     fact = {"fact_type": "lab_result", "assertion": "present", "display": "Creatinine, serum", "raw_text": "2.1",
             "value_num": 2.1, "unit": "mg/dL", "dose": None, "value_text": None, "created_by": "system:pipeline"}

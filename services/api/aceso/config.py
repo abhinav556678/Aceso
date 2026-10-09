@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     stt_model: str = "whisper-large-v3-turbo"
+    handwriting_ocr: str = "auto"       # auto (only with a GPU) | on | off
+    handwriting_model: str = "microsoft/trocr-base-handwritten"
+    handwriting_below: float = 0.90     # clean print scores above this; a page with many regions below it is handwritten
 
     web_origin: str = "http://localhost:3000"
 

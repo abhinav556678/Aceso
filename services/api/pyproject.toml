@@ -26,6 +26,11 @@ dev = [
     "pgserver",      # embedded Postgres + pgvector for tests and offline demos
 ]
 
+handwriting = [
+    "torch",         # for a GPU, install the CUDA build first (see .env.example)
+    "transformers",  # TrOCR, the second reader for handwritten lines on scans
+]
+
 [tool.setuptools.packages.find]
 include = ["aceso*"]
 

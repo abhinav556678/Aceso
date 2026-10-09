@@ -53,8 +53,11 @@ function DocumentSource({ fact }: { fact: any }) {
 export function ScanReview({ documentId, onClose }: { documentId: string; onClose: () => void }) {
   const [doc, setDoc] = useState<any | null>(null)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
 
-  useEffect(() => { api(`/documents/${documentId}`).then(setDoc).catch(e => setError(e.message)) }, [documentId])
+  useEffect(() => {
+    api(`/documents/${documentId}`).then(d => { setDoc(d); setError('') }).catch(e => setError(e.message))
+  }, [documentId, attempt])
 
   const limits = doc?.thresholds
   const flagged: any[] = doc ? doc.blocks.filter((b: any) => b.confidence < limits.review_below) : []
@@ -67,7 +70,11 @@ export function ScanReview({ documentId, onClose }: { documentId: string; onClos
         <span>Scan check · {doc?.original_name || 'document'}</span>
         <button onClick={onClose} aria-label="Close scan check" className="opacity-75 hover:opacity-100">×</button>
       </figcaption>
-      {error && <p className="p-3 text-red-700 text-sm">{error}</p>}
+      {error && !doc && (
+        <p className="p-3 text-red-700 text-sm">
+          {error} <button onClick={() => setAttempt(n => n + 1)} className="ml-2 text-blue-700 hover:underline">Try again</button>
+        </p>
+      )}
       {!doc && !error && <p className="p-3 text-slate-500 text-sm">Loading…</p>}
       {doc && !flagged.length && <p className="p-3 text-sm text-slate-600">Every row on this scan was read with confidence.</p>}
       {pages.map(page => (

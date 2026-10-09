@@ -70,6 +70,7 @@ export const REASONS: Record<string, string> = {
   out_of_plausible_range: 'Value is outside the physiologically possible range — likely a misread',
   ocr_mismatch: 'The value does not match the text at the cited location',
   low_ocr_confidence: 'Read from a scan with low confidence — check it against the page',
+  read_by_handwriting_model: 'Handwritten on the page — the reading can be wrong, confirm it against the page',
   ocr_inexact_drug: 'Drug name read from a scan is not an exact dictionary match — confirm the drug',
   not_supported_by_transcript: 'The cited speech does not support this',
   no_reference_range: 'No reference range on file to sanity-check this value',

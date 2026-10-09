@@ -20,7 +20,7 @@ from aceso.extraction.extract import CHUNK_UNITS, PROMPT_VERSION, extract
 from aceso.extraction.terminology import Terminology
 from aceso.extraction.verify import OCR_REVIEW_BELOW, find_omissions, verify
 from aceso.llm.client import LLMError, RecordingLLM, get_llm
-from aceso.perception import ocr, pdf, stt
+from aceso.perception import handwriting, ocr, pdf, stt
 from aceso.privacy import Redactor
 from aceso.safety import engine
 
@@ -122,7 +122,8 @@ def _run_document(job: dict, source_id, llm=None) -> dict:
     # a row the OCR could not read is shown to the doctor as unreadable; it is not evidence
     readable = [b for b in blocks if b["confidence"] >= ocr.UNREADABLE_BELOW]
     units = [{"id": f"B{i}", "kind": "block", "db_id": b["id"], "text": b["text"], "page_no": b["page_no"],
-              "confidence": b["confidence"], "ocr": b["engine"] == ocr.ENGINE, "block": b}
+              "confidence": b["confidence"], "ocr": b["engine"] != pdf.TEXT_LAYER,
+              "handwriting": b["engine"] == handwriting.ENGINE, "block": b}
              for i, b in enumerate(readable, start=1)]
     effective = datetime.combine(doc_date, time(12), tzinfo=timezone.utc) if doc_date else datetime.now(timezone.utc)
     result = _extract_and_store(job, units, "document", source_id, effective, llm)
