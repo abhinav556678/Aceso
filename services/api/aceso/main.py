@@ -8,11 +8,14 @@ from aceso.workers.worker import run_worker_loop
 async def lifespan(app: FastAPI):
     # Startup: connect to db, start background workers
     print("Starting up Aceso API...")
+    from aceso.db import pool
+    pool.open()
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
     yield
     # Shutdown
     print("Shutting down Aceso API...")
+    pool.close()
 
 app = FastAPI(title="Aceso API", lifespan=lifespan)
 
