@@ -117,6 +117,18 @@ def process_job(conn, job: dict):
                     conn.rollback()
         
         result['extracted_facts'] = verified_facts
+        
+        # Trigger safety evaluation if we extracted and saved facts
+        if verified_facts:
+            try:
+                from aceso.safety.engine import evaluate_patient_safety
+                patient_id = job['payload'].get('patient_id')
+                encounter_id = job['payload'].get('encounter_id')
+                if patient_id:
+                    evaluate_patient_safety(patient_id, encounter_id)
+            except Exception as safety_err:
+                logger.error(f"Safety evaluation failed: {safety_err}")
+                
         complete_job(conn, job['id'], result)
         logger.info(f"Completed job {job['id']} with {len(verified_facts)} facts extracted/verified.")
     except Exception as e:
