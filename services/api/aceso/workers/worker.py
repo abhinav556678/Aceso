@@ -147,8 +147,25 @@ def process_job(conn, job: dict):
                         fact_dict.get('value_num'), fact_dict.get('unit'), fact_dict.get('evidence_text'), fact_dict.get('source_type'),
                         fact_dict.get('normalized_code'), fact_dict.get('normalized_system'), fact_dict.get('state', 'needs_attention'), fact_dict.get('confidence', 0.0)
                     ))
+                    
+                    # Also embed and insert fact chunk for natural-language search
+                    from aceso.ai.embeddings import embed_text
+                    import json
+                    
+                    content_text = fact_dict.get('evidence_text') or fact_dict.get('display', '')
+                    vec = embed_text(content_text)
+                    vec_str = "[" + ",".join(str(x) for x in vec) + "]"
+                    
+                    cur.execute("""
+                        INSERT INTO fact_chunks (id, patient_id, fact_id, content, metadata, embedding)
+                        VALUES (%s, %s, %s, %s, %s, %s::vector)
+                    """, (
+                        str(uuid.uuid4()), patient_id, fact_dict.get('id'), content_text, 
+                        json.dumps({"source": source_type, "type": fact_dict.get('fact_type')}), vec_str
+                    ))
+                    
                 except Exception as db_err:
-                    logger.warning(f"Could not insert fact into DB (table might not exist): {db_err}")
+                    logger.warning(f"Could not insert fact/chunk into DB: {db_err}")
                     conn.rollback()
         
         result['extracted_facts'] = verified_facts
