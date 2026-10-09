@@ -79,12 +79,10 @@ def process_job(conn, job: dict):
         
         # Fact Normalization & Conversion to dict
         structured_facts = []
+        patient_id = job['payload'].get('patient_id', 'unknown')
         for fact in extracted_facts:
             norm = normalize_term(fact.display, fact.fact_type)
             fact_dict = fact.model_dump()
-            fact_dict['id'] = str(uuid.uuid4())
-            fact_dict['patient_id'] = job['payload'].get('patient_id', 'unknown')
-            fact_dict['job_id'] = job['id']
             fact_dict['source_type'] = source_type
             fact_dict['normalized_code'] = norm.get('code')
             fact_dict['normalized_system'] = norm.get('system')
@@ -96,11 +94,9 @@ def process_job(conn, job: dict):
         # DB Saving
         with conn.cursor() as cur:
             for fact_dict in verified_facts:
-                # Omissions won't have patient_id and job_id from the verifier
-                if 'patient_id' not in fact_dict:
-                    fact_dict['id'] = str(uuid.uuid4())
-                    fact_dict['patient_id'] = job['payload'].get('patient_id', 'unknown')
-                    fact_dict['job_id'] = job['id']
+                fact_dict['id'] = str(uuid.uuid4())
+                fact_dict['patient_id'] = patient_id
+                fact_dict['job_id'] = job['id']
                 
                 # Insert into DB (mock or real)
                 try:

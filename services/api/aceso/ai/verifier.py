@@ -1,83 +1,108 @@
 import logging
-import uuid
 from typing import List, Dict, Any
+from rapidfuzz import fuzz
 
 logger = logging.getLogger(__name__)
 
-def verify_facts(structured_facts: List[Dict[str, Any]], source_type: str, result_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Three-Way Verification Engine.
-    Cross-checks extracted facts against OCR/STT output.
-    """
-    verified_facts = []
-    
-    # 1. & 2. Verify extracted facts
-    for fact in structured_facts:
-        confidence = 0.0
+class VerificationStrategy:
+    def verify(self, fact: Dict[str, Any], result_data: Dict[str, Any]) -> float:
+        raise NotImplementedError
+    def get_full_text(self, result_data: Dict[str, Any]) -> str:
+        raise NotImplementedError
+
+class DocumentVerifier(VerificationStrategy):
+    def verify(self, fact: Dict[str, Any], result_data: Dict[str, Any]) -> float:
         evidence = fact.get('evidence_text', '').lower()
-        
         if not evidence:
-            pass
-        elif source_type == 'document':
-            # OCR match check
-            pages = result_data.get('pages', [])
-            found = False
-            for page in pages:
-                # Check blocks
-                for block in page.get('blocks', []):
-                    if evidence in block.get('text', '').lower():
-                        found = True
-                        break
-                if found: break
-                
-                # Fallback to page text
-                if evidence in page.get('text', '').lower():
-                    found = True
-                    break
+            return 0.0
+            
+        best_score = 0.0
+        best_bbox = None
+        best_page = None
+        
+        pages = result_data.get('pages', [])
+        for page in pages:
+            for block in page.get('blocks', []):
+                block_text = block.get('text', '').lower()
+                score = fuzz.partial_ratio(evidence, block_text)
+                if score > best_score:
+                    best_score = score
+                    best_bbox = {
+                        'x': block.get('x'),
+                        'y': block.get('y'),
+                        'w': block.get('w'),
+                        'h': block.get('h')
+                    }
+                    best_page = page.get('page_number')
                     
-            if found:
-                confidence = 0.95
-            else:
-                confidence = 0.3
+        if best_score > 80 and best_bbox:
+            fact['bbox'] = best_bbox
+            fact['page_no'] = best_page
+            
+        return best_score / 100.0
+
+    def get_full_text(self, result_data: Dict[str, Any]) -> str:
+        return result_data.get('text', '').lower()
+
+class AudioVerifier(VerificationStrategy):
+    def verify(self, fact: Dict[str, Any], result_data: Dict[str, Any]) -> float:
+        evidence = fact.get('evidence_text', '').lower()
+        if not evidence:
+            return 0.0
+            
+        transcript = result_data.get('transcript', '').lower()
+        score = fuzz.partial_ratio(evidence, transcript)
+        
+        best_segment = None
+        best_seg_score = 0.0
+        for segment in result_data.get('segments', []):
+            seg_score = fuzz.partial_ratio(evidence, segment.get('text', '').lower())
+            if seg_score > best_seg_score:
+                best_seg_score = seg_score
+                best_segment = segment
                 
-        elif source_type == 'audio':
-            # Transcript support check
-            transcript = result_data.get('transcript', '').lower()
-            if evidence in transcript:
-                confidence = 0.95
-            else:
-                confidence = 0.3
-                
-        fact['confidence'] = confidence
+        if best_seg_score > 80 and best_segment:
+            fact['audio_start_ms'] = int(best_segment.get('start', 0) * 1000)
+            fact['audio_end_ms'] = int(best_segment.get('end', 0) * 1000)
+            
+        return max(score, best_seg_score) / 100.0
+
+    def get_full_text(self, result_data: Dict[str, Any]) -> str:
+        return result_data.get('transcript', '').lower()
+
+
+def get_verifier(source_type: str) -> VerificationStrategy:
+    if source_type == 'document':
+        return DocumentVerifier()
+    elif source_type == 'audio':
+        return AudioVerifier()
+    raise ValueError(f"Unknown source type: {source_type}")
+
+
+def verify_facts(structured_facts: List[Dict[str, Any]], source_type: str, result_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    verified_facts = []
+    strategy = get_verifier(source_type)
+    
+    for fact in structured_facts:
+        confidence = strategy.verify(fact, result_data)
+        fact['confidence'] = round(confidence, 2)
         if confidence > 0.8:
             fact['state'] = 'verified'
         else:
             fact['state'] = 'needs_attention'
-            
         verified_facts.append(fact)
         
-    # 3. Omission check (high-recall pass)
-    # Check full text for common critical terms that might be missed
-    full_text = ""
-    if source_type == 'document':
-        full_text = result_data.get('text', '').lower()
-    elif source_type == 'audio':
-        full_text = result_data.get('transcript', '').lower()
-        
-    critical_terms = ["cancer", "tumor", "severe", "critical", "allergy", "anaphylaxis", "fracture", "myocardial"]
+    full_text = strategy.get_full_text(result_data)
     
-    # Simple check: if a critical term is in the text but no fact mentions it
+    critical_terms = ["cancer", "tumor", "severe", "critical", "allergy", "anaphylaxis", "fracture", "myocardial", "infarction", "hemorrhage", "stroke"]
+    
     for term in critical_terms:
-        if term in full_text:
-            # Check if any fact mentions it
-            mentioned = False
-            for fact in verified_facts:
-                if term in str(fact.get('display', '')).lower() or term in str(fact.get('evidence_text', '')).lower():
-                    mentioned = True
-                    break
+        if fuzz.partial_ratio(term, full_text) > 90:
+            mentioned = any(fuzz.partial_ratio(term, str(f.get('display', '')).lower()) > 80 or 
+                            fuzz.partial_ratio(term, str(f.get('evidence_text', '')).lower()) > 80 
+                            for f in verified_facts)
             
             if not mentioned:
-                # Flag as omitted fact
                 omission = {
                     'fact_type': 'omission_warning',
                     'display': f"Potential omission detected: {term}",

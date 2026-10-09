@@ -14,7 +14,7 @@ def test_ocr_match_check():
     }
     verified = verify_facts(structured_facts, "document", result_data)
     assert len(verified) == 1
-    assert verified[0]["confidence"] == 0.95
+    assert verified[0]["confidence"] > 0.8
     assert verified[0]["state"] == "verified"
 
 def test_ocr_match_fail():
@@ -30,7 +30,7 @@ def test_ocr_match_fail():
     }
     verified = verify_facts(structured_facts, "document", result_data)
     assert len(verified) == 1
-    assert verified[0]["confidence"] == 0.3
+    assert verified[0]["confidence"] < 0.8
     assert verified[0]["state"] == "needs_attention"
 
 def test_omission_check():
