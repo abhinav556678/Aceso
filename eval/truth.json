@@ -1,0 +1,72 @@
+
+{
+  "S1_metformin_ckd": {
+    "text": "Continue Glycomet 500",
+    "historical_facts": [
+      {"fact_type": "lab_result", "display": "Creatinine", "value_num": 2.1, "unit": "mg/dL", "code": "2160-0"}
+    ],
+    "patient": {"dob": "1976-01-01", "sex": "F"},
+    "expected_facts": [
+      {"fact_type": "medication", "display": "Metformin 500 mg"}
+    ],
+    "expected_alerts": ["KDIGO-METFORMIN-EGFR30"]
+  },
+  "S2_allergy_contradiction": {
+    "text": "Patient says no allergies. Doctor prescribes Mox (amoxicillin).",
+    "historical_facts": [
+      {"fact_type": "allergy", "display": "Penicillin", "code": "penicillin"}
+    ],
+    "patient": {"dob": "1980-01-01", "sex": "M"},
+    "expected_facts": [
+      {"fact_type": "allergy", "display": "allergies"},
+      {"fact_type": "medication", "display": "Mox"}
+    ],
+    "expected_alerts": ["CONTRADICTION-ALLERGY", "ALLERGY-CONFLICT"]
+  },
+  "S3_negation": {
+    "text": "no diabetes, not allergic to sulfa, no chest pain. prescribe Septran.",
+    "historical_facts": [],
+    "patient": {"dob": "1968-01-01", "sex": "F"},
+    "expected_facts": [
+      {"fact_type": "condition", "display": "diabetes"},
+      {"fact_type": "allergy", "display": "sulfa"},
+      {"fact_type": "symptom", "display": "chest pain"},
+      {"fact_type": "medication", "display": "Septran"}
+    ],
+    "expected_alerts": []
+  },
+  "S4_duplicate_dose_interaction": {
+    "text": "Meds: Ecosprin 75 + Warf. Dolo 650 QID + Crocin 650 TDS",
+    "historical_facts": [],
+    "patient": {"dob": "1954-01-01", "sex": "M"},
+    "expected_facts": [
+      {"fact_type": "medication", "display": "Ecosprin 75"},
+      {"fact_type": "medication", "display": "Warf"},
+      {"fact_type": "medication", "display": "Dolo 650"},
+      {"fact_type": "medication", "display": "Crocin 650"}
+    ],
+    "expected_alerts": ["DRUG-INTERACTION", "DUPLICATE-THERAPY", "DOSE-WARNING"]
+  },
+  "S5_trend_open_loop": {
+    "text": "repeat HbA1c in 3 months",
+    "historical_facts": [
+      {"fact_type": "lab_result", "display": "HbA1c", "value_num": 8.9, "unit": "%"},
+      {"fact_type": "lab_result", "display": "HbA1c", "value_num": 8.2, "unit": "%"},
+      {"fact_type": "lab_result", "display": "HbA1c", "value_num": 7.6, "unit": "%"}
+    ],
+    "patient": {"dob": "1971-01-01", "sex": "F"},
+    "expected_facts": [],
+    "expected_alerts": ["OVERDUE_LOOP"]
+  },
+  "S6_control": {
+    "text": "Healthy, viral URI, paracetamol",
+    "historical_facts": [],
+    "patient": {"dob": "1992-01-01", "sex": "M"},
+    "expected_facts": [
+      {"fact_type": "condition", "display": "viral URI"},
+      {"fact_type": "medication", "display": "paracetamol"}
+    ],
+    "expected_alerts": []
+  }
+}
+
