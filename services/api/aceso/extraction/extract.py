@@ -13,7 +13,6 @@ from rapidfuzz import fuzz
 from aceso.extraction.negation import has_cue, is_negated
 from aceso.extraction.terminology import BLANKET_ALLERGY, UNIT_CONVERSIONS, Terminology, parse_dose
 from aceso.llm.client import LLMClient
-from aceso.privacy import Redactor
 
 logger = logging.getLogger(__name__)
 
@@ -55,20 +54,21 @@ class LLMFact(BaseModel):
     evidence_ids: list[str]
 
 
-def format_unit(unit: dict, redactor: Redactor) -> str:
-    text = redactor.redact(unit["text"])
+def format_unit(unit: dict) -> str:
+    """One line of the packet. Only `sent`, the redacted text, ever reaches the model."""
+    text = unit["sent"]
     if unit["kind"] == "segment":
         return f'[{unit["id"]}] ({unit.get("speaker") or "unknown"}) "{text}"'
     return f'[{unit["id"]}] (page {unit["page_no"]}) "{text}"'
 
 
-def extract(llm: LLMClient, units: list[dict], term: Terminology, redactor: Redactor) -> tuple[list[dict], list[str]]:
+def extract(llm: LLMClient, units: list[dict], term: Terminology) -> tuple[list[dict], list[str]]:
     """Run the model over the units and return (accepted draft facts, rejection reasons)."""
     by_id = {u["id"]: u for u in units}
     drafts, rejected = [], []
     for start in range(0, len(units), CHUNK_UNITS):
         chunk = units[start:start + CHUNK_UNITS]
-        packet = "\n".join(format_unit(u, redactor) for u in chunk)
+        packet = "\n".join(format_unit(u) for u in chunk)
         raw = llm.extract_json(SYSTEM_PROMPT, f"Evidence units:\n{packet}")
         for item in raw.get("facts") or []:
             draft, reason = _validate(item, by_id)

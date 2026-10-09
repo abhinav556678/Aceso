@@ -143,3 +143,55 @@ def test_misprinted_lab_value_is_held_for_review(client, monkeypatch):
     assert not [a for a in chart(client, 6)["alerts"] if a["status"] == "open"]  # unverified facts never reach the engine
     page = client.get(f"/api/documents/{fact['document_id']}/pages/1.png", headers=NURSE)
     assert page.status_code == 200 and page.content[:4] == b"\x89PNG"
+
+
+def test_privacy_receipt_shows_exactly_what_was_sent(client, monkeypatch):
+    """The stored payload has no identifiers, matches the audit chain, and hides originals from the admin."""
+    monkeypatch.setattr(pipeline, "get_llm", lambda: ScriptedLLM([]))
+    transcript = b"[00:01-00:05] Doctor: Karthik, your phone is still 9876543210?\n[00:06-00:08] Patient: Yes.\n"
+    response = client.post("/api/ingest", headers=NURSE, data={"patient_id": PATIENTS[6]},
+                           files={"file": ("call.txt", transcript, "text/plain")})
+    job_id = response.json()["job_id"]
+    result = client.get(f"/api/jobs/{job_id}", headers=NURSE).json()["result"]
+    assert result["redacted"] == 2 and result["llm_calls"] == 1
+
+    receipt = client.get(f"/api/jobs/{job_id}/privacy", headers=DOCTOR).json()
+    call = receipt["calls"][0]
+    assert "Karthik" not in call["user_message"] and "9876543210" not in call["user_message"]
+    assert call["redacted"] == {"PERSON": 1, "PHONE": 1} and call["intact"] is True
+    first = call["units"][0]
+    assert first["sent"] == "<PERSON>, your phone is still <PHONE>?"
+    assert [first["original"][a:b] for a, b, _ in first["spans"]] == ["Karthik", "9876543210"]
+
+    audited = client.get(f"/api/jobs/{job_id}/privacy", headers=ADMIN).json()
+    assert audited["shows_original"] is False and "Karthik" not in str(audited)
+    assert audited["calls"][0]["intact"] is True
+    assert client.post("/api/admin/audit/verify", headers=ADMIN).json()["ok"] is True
+
+    preview = client.post("/api/privacy/preview", headers=ADMIN, json={"text": "Dr. Iyer saw ACE-0003"}).json()
+    assert preview["sent"] == "Dr. <PERSON> saw <MRN>"
+
+
+def test_photographed_report_is_read_by_ocr_and_a_smudged_row_is_not_guessed(client, monkeypatch):
+    pytest.importorskip("rapidocr_onnxruntime")
+    monkeypatch.setattr(pipeline, "get_llm", lambda: ScriptedLLM([
+        {**lab("Creatinine", 2.1, "mg/dL"), "raw_text": "2.1 mg/dL"}, {**lab("Potassium", 4.8, "mmol/L"), "raw_text": "4.8"}]))
+    with open(SAMPLES / "S1_meena_labs_photo_smudged.jpg", "rb") as handle:
+        response = client.post("/api/ingest", headers=NURSE, data={"patient_id": PATIENTS[3]},
+                               files={"file": ("photo.jpg", handle, "image/jpeg")})
+    assert response.status_code == 200, response.text
+    job = client.get(f"/api/jobs/{response.json()['job_id']}", headers=NURSE).json()
+    assert job["status"] == "done", job
+    assert job["result"]["ocr"]["unreadable"] == 1 and job["result"]["facts"] == 1  # potassium row: no fact, flagged
+
+    creatinine = next(f for f in chart(client, 3)["facts"] if f["code"] == "2160-0")
+    assert creatinine["state"] == "verified" and creatinine["value_num"] == 2.1 and creatinine["bbox"]["w"] < 0.1
+    document = client.get(f"/api/documents/{creatinine['document_id']}", headers=NURSE).json()
+    assert document["ocr_engine"] == "rapidocr-onnx"
+    assert sum(1 for b in document["blocks"] if b["confidence"] < document["thresholds"]["unreadable_below"]) == 1
+    page = client.get(f"/api/documents/{creatinine['document_id']}/pages/1.png", headers=NURSE)
+    assert page.status_code == 200 and page.content[:4] == b"\x89PNG"
+
+    # the name printed on the photo is not this patient's registered name, and still does not leave
+    sent = client.get(f"/api/jobs/{job['id']}/privacy", headers=DOCTOR).json()["calls"][0]["user_message"]
+    assert "Meena" not in sent and "Rajan" not in sent and "ACE-0001" not in sent and "Creatinine" in sent

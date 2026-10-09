@@ -16,6 +16,8 @@ dependencies = [
     "httpx",
     "pymupdf",
     "rapidfuzz",
+    "pillow",
+    "rapidocr-onnxruntime",   # local OCR for scans and photos; models ship inside the wheel
 ]
 
 [project.optional-dependencies]

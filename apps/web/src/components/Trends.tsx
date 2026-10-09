@@ -40,12 +40,12 @@ function TrendChart({ series, onSelectFact }: { series: any; onSelectFact: (id: 
   const active = hover != null ? points[hover] : null
 
   return (
-    <section className="bg-white border border-slate-200 rounded-lg p-4">
+    <section className="bg-white border border-slate-200 p-4">
       <header className="flex justify-between items-baseline mb-1">
         <h3 className="font-semibold">{series.name} <span className="text-slate-500 font-normal text-sm">({series.unit})</span></h3>
         <button onClick={() => setTable(!table)} className="text-xs text-blue-700 hover:underline">{table ? 'Show chart' : 'Show table'}</button>
       </header>
-      <p className="text-sm text-slate-700 mb-2">{series.latest_out_of_range ? '⚠ ' : ''}{series.summary}</p>
+      <p className="text-sm text-slate-700 mb-2">{series.summary}</p>
 
       {table ? (
         <table className="w-full text-sm">
@@ -54,7 +54,7 @@ function TrendChart({ series, onSelectFact }: { series: any; onSelectFact: (id: 
             {points.map((p: any) => (
               <tr key={p.fact_id} className="border-t border-slate-100">
                 <td className="py-1">{fmtDate(p.at)}</td><td className="font-mono">{p.value} {series.unit}</td>
-                <td>{outside(p.value) ? '⚠ outside' : '✓ inside'}</td>
+                <td>{outside(p.value) ? 'outside' : 'inside'}</td>
                 <td className="text-right"><button onClick={() => onSelectFact(p.fact_id)} className="text-blue-700 hover:underline">source →</button></td>
               </tr>
             ))}
@@ -90,7 +90,7 @@ function TrendChart({ series, onSelectFact }: { series: any; onSelectFact: (id: 
             {points.length > 1 && <text x={W - PAD.right} y={H - 8} textAnchor="end" fontSize="10" fill="#64748b">{fmtDate(points[points.length - 1].at)}</text>}
           </svg>
           {active && (
-            <div className="absolute pointer-events-none bg-slate-900 text-white text-xs rounded px-2 py-1 -translate-x-1/2"
+            <div className="absolute pointer-events-none bg-slate-900 text-white text-xs px-2 py-1 -translate-x-1/2"
               style={{ left: `${(x(active.t) / W) * 100}%`, top: 0 }}>
               <span className="font-mono font-semibold">{active.value} {series.unit}</span> · {fmtDate(active.at)}
               {outside(active.value) && ' · outside range'} · click for source

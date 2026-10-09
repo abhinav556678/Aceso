@@ -13,7 +13,7 @@ export default function Login() {
   const router = useRouter()
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-white rounded-lg border border-slate-200 shadow-sm p-8">
+      <div className="max-w-md w-full bg-white border border-slate-200 p-8">
         <h1 className="text-2xl font-bold">ACESO</h1>
         <p className="text-slate-500 mb-6">Demo sign-in · synthetic patients only</p>
         <div className="space-y-3">
@@ -24,7 +24,7 @@ export default function Login() {
                 setRole(account.role)
                 router.push(account.role === 'admin' ? '/admin' : '/patients')
               }}
-              className="w-full text-left border border-slate-300 hover:border-blue-500 hover:bg-blue-50 rounded-lg px-4 py-3 transition-colors"
+              className="w-full text-left border border-slate-300 hover:border-blue-500 hover:bg-blue-50 px-4 py-3 transition-colors"
             >
               <span className="font-semibold">{account.name}</span>
               <span className="ml-2 text-xs uppercase tracking-wide text-slate-500">{account.role}</span>

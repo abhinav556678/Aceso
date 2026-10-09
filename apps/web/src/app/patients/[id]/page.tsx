@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import AlertDrawer, { SEVERITY } from '../../../components/AlertDrawer'
-import SourceViewer from '../../../components/SourceViewer'
+import PrivacyReceipt from '../../../components/PrivacyReceipt'
+import SourceViewer, { ScanReview } from '../../../components/SourceViewer'
 import Trends from '../../../components/Trends'
 import { api, ApiError, fileUrl, fmtDate, getRole, post, REASONS } from '../../../lib/api'
 
@@ -13,7 +14,7 @@ type Tab = 'review' | 'timeline' | 'trends' | 'search'
 const STATE: Record<string, { icon: string; label: string; color: string }> = {
   extracted: { icon: '◔', label: 'Unverified', color: 'var(--state-extracted)' },
   verified: { icon: '✓', label: 'Verified', color: 'var(--state-verified)' },
-  clinician_confirmed: { icon: '✔✔', label: 'Doctor-confirmed', color: 'var(--state-confirmed)' },
+  clinician_confirmed: { icon: '✓✓', label: 'Doctor-confirmed', color: 'var(--state-confirmed)' },
   rejected: { icon: '✕', label: 'Rejected', color: 'var(--state-rejected)' },
 }
 const LANG: Record<string, string> = { en: 'English', ta: 'தமிழ்', hi: 'हिन्दी' }
@@ -42,6 +43,8 @@ function PatientChart() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [openAlertId, setOpenAlertId] = useState<string | null>(null)
   const [blockers, setBlockers] = useState<string[]>([])
+  const [receiptJob, setReceiptJob] = useState<string | null>(null)
+  const [scanDoc, setScanDoc] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -106,7 +109,7 @@ function PatientChart() {
   }, [chart, selectedId])
 
   if (error && !chart) {
-    return <main className="p-8"><p role="alert" className="border border-red-300 bg-red-50 text-red-800 rounded p-3 max-w-xl">{error}</p>
+    return <main className="p-8"><p role="alert" className="border border-red-300 bg-red-50 text-red-800 p-3 max-w-xl">{error}</p>
       <Link href="/patients" className="text-blue-700 hover:underline mt-4 inline-block">← Patients</Link></main>
   }
   if (!chart || !derived) return <main className="p-8 text-slate-500">Loading chart…</main>
@@ -123,7 +126,7 @@ function PatientChart() {
       <div
         key={fact.id}
         onClick={() => setSelectedId(fact.id)}
-        className={`rounded-lg border bg-white p-3 cursor-pointer ${selectedId === fact.id ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200 hover:border-slate-400'}`}
+        className={` border bg-white p-3 cursor-pointer ${selectedId === fact.id ? 'border-blue-600' : 'border-slate-200 hover:border-slate-400'}`}
       >
         <div className="flex justify-between items-start gap-2">
           <p className={`font-semibold ${fact.state === 'rejected' ? 'line-through text-slate-500' : ''}`}>
@@ -134,18 +137,18 @@ function PatientChart() {
           <span className="text-xs whitespace-nowrap font-semibold" style={{ color: state.color }}>{state.icon} {state.label}</span>
         </div>
         <p className="text-xs text-slate-500 mt-0.5">
-          {fact.fact_type.replace('_', ' ')} · {fact.source === 'document' ? `📄 ${fact.document_name || 'document'} p.${fact.page_no}` : fact.source === 'audio' ? '🎤 consult' : '🧮 computed'}
+          {fact.fact_type.replace('_', ' ')} · {fact.source === 'document' ? `${fact.document_name || 'document'} p.${fact.page_no}` : fact.source === 'audio' ? 'consult' : 'computed'}
           {' · '}{fmtDate(fact.effective_at)}{fact.confidence != null && fact.source !== 'manual' ? ` · confidence ${Math.round(fact.confidence * 100)}%` : ''}
         </p>
         {fact.raw_text && fact.source !== 'manual' && <p className="text-sm text-slate-700 mt-1">“{fact.raw_text}”</p>}
         {fact.attention_reasons?.map((reason: string) => (
           <p key={reason} className="text-sm mt-1" style={{ color: 'var(--state-extracted)' }}>◔ {REASONS[reason] || reason}</p>
         ))}
-        {derived.flagged.has(fact.id) && <p className="text-sm mt-1 font-semibold" style={{ color: 'var(--sev-critical)' }}>⛔ Involved in an open safety alert</p>}
+        {derived.flagged.has(fact.id) && <p className="text-sm mt-1 font-semibold" style={{ color: 'var(--sev-critical)' }}>Involved in an open safety alert</p>}
         {reviewable && !signed && (
           <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-            {isDoctor && <button onClick={() => run(() => post(`/facts/${fact.id}/confirm`))} className="text-sm bg-green-700 text-white rounded px-3 py-1 hover:bg-green-800">Confirm</button>}
-            <button onClick={() => run(() => post(`/facts/${fact.id}/reject`))} className="text-sm border border-slate-400 rounded px-3 py-1 hover:bg-slate-100">Reject</button>
+            {isDoctor && <button onClick={() => run(() => post(`/facts/${fact.id}/confirm`))} className="text-sm bg-green-700 text-white px-3 py-1 hover:bg-green-800">Confirm</button>}
+            <button onClick={() => run(() => post(`/facts/${fact.id}/reject`))} className="text-sm border border-slate-400 px-3 py-1 hover:bg-slate-100">Reject</button>
           </div>
         )}
       </div>
@@ -162,9 +165,9 @@ function PatientChart() {
             return (
               <li key={index}>
                 <button onClick={() => setSelectedId(factId)}
-                  className={`text-left text-sm rounded px-1 hover:bg-yellow-100 ${selectedId === factId ? 'bg-yellow-200' : ''}`}>
+                  className={`text-left text-sm px-1 hover:bg-yellow-100 ${selectedId === factId ? 'bg-yellow-200' : ''}`}>
                   {item.text}
-                  {derived.flagged.has(factId) && <span className="ml-2 font-semibold" style={{ color: 'var(--sev-critical)' }}>⛔ alert</span>}
+                  {derived.flagged.has(factId) && <span className="ml-2 font-semibold" style={{ color: 'var(--sev-critical)' }}>alert</span>}
                 </button>
               </li>
             )
@@ -180,7 +183,7 @@ function PatientChart() {
         <div>
           <h1 className="text-lg font-bold">{patient.full_name} · {patient.age} {patient.sex} · MRN {patient.mrn} · {LANG[patient.preferred_lang] || patient.preferred_lang}</h1>
           <p className="text-sm text-slate-500">
-            {encounter ? `${encounter.chief_complaint || 'Visit'} · ${fmtDate(encounter.started_at)} · ${signed ? '🔒 signed' : 'in progress'}` : 'No visit yet'}
+            {encounter ? `${encounter.chief_complaint || 'Visit'} · ${fmtDate(encounter.started_at)} · ${signed ? 'signed' : 'in progress'}` : 'No visit yet'}
             {' · '}signed in as {chart.viewer.name} ({chart.viewer.role})
           </p>
         </div>
@@ -189,23 +192,23 @@ function PatientChart() {
 
       {/* safety banner: always visible on every tab */}
       <div className="px-6 pt-3 space-y-2">
-        {error && <p role="alert" className="border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm flex justify-between"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss">×</button></p>}
-        {notice && <p role="status" className="border border-green-300 bg-green-50 text-green-900 rounded p-3 text-sm">{notice}</p>}
+        {error && <p role="alert" className="border border-red-300 bg-red-50 text-red-800 p-3 text-sm flex justify-between"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss">×</button></p>}
+        {notice && <p role="status" className="border border-green-300 bg-green-50 text-green-900 p-3 text-sm">{notice}</p>}
         {derived.openAlerts.map((alert: any) => {
           const severity = SEVERITY[alert.severity] || SEVERITY.info
           return (
-            <div key={alert.id} className="bg-white border-l-8 border rounded p-3 flex justify-between items-center gap-4" style={{ borderColor: severity.color }}>
+            <div key={alert.id} className="bg-white border-l-8 border p-3 flex justify-between items-center gap-4" style={{ borderColor: severity.color }}>
               <p><span className="font-bold uppercase text-sm" style={{ color: severity.color }}>{severity.icon} {severity.label}</span> · <span className="font-medium">{alert.message}</span></p>
-              <button onClick={() => setOpenAlertId(alert.id)} className="shrink-0 border border-slate-400 rounded px-3 py-1 text-sm font-semibold hover:bg-slate-100">Explain &amp; act</button>
+              <button onClick={() => setOpenAlertId(alert.id)} className="shrink-0 border border-slate-400 px-3 py-1 text-sm font-semibold hover:bg-slate-100">Explain &amp; act</button>
             </div>
           )
         })}
         {chart.unverified_count > 0 && (
-          <p className="bg-amber-50 border border-amber-300 rounded p-3 text-sm">
+          <p className="bg-amber-50 border border-amber-300 p-3 text-sm">
             ◔ {chart.unverified_count} fact{chart.unverified_count > 1 ? 's are' : ' is'} not yet verified and {chart.unverified_count > 1 ? 'were' : 'was'} not evaluated by the safety engine. No alert does not mean safe.
           </p>
         )}
-        {chart.safety_notes.map((n: any) => <p key={n.rule_id} className="bg-slate-100 border border-slate-300 rounded p-3 text-sm">ℹ {n.message} ({n.rule_id} not evaluated)</p>)}
+        {chart.safety_notes.map((n: any) => <p key={n.rule_id} className="bg-slate-100 border border-slate-300 p-3 text-sm">{n.message} ({n.rule_id} not evaluated)</p>)}
         {derived.handledAlerts.length > 0 && (
           <details className="text-sm text-slate-600">
             <summary className="cursor-pointer">{derived.handledAlerts.length} handled alert(s)</summary>
@@ -232,19 +235,34 @@ function PatientChart() {
           {/* facts */}
           <section className="border-r border-slate-200 p-5 space-y-5 overflow-y-auto">
             <div>
-              <label className={`inline-block bg-blue-600 text-white font-medium py-2 px-4 rounded text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
-                Upload PDF, audio or transcript
-                <input type="file" className="hidden" accept=".pdf,.txt,audio/*" disabled={signed}
+              <label className={`inline-block bg-blue-600 text-white font-medium py-2 px-4 text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
+                Upload PDF, scan or photo, audio or transcript
+                <input type="file" className="hidden" accept=".pdf,.txt,image/*,audio/*" disabled={signed}
                   onChange={e => { upload(e.target.files?.[0]); e.target.value = '' }} />
               </label>
               <ul className="mt-2 space-y-1">
                 {chart.jobs.map((job: any) => (
-                  <li key={job.id} className="text-sm border border-slate-200 bg-white rounded px-3 py-2">
+                  <li key={job.id} className="text-sm border border-slate-200 bg-white px-3 py-2">
                     <span className="font-medium">{job.filename}</span>{' — '}
                     {job.status === 'failed' ? <span className="text-red-700">✕ Failed: {job.error}</span>
                       : job.status === 'done' ? <span className="text-green-800">✓ {job.result?.facts} facts ({job.result?.verified} verified, {job.result?.needs_attention} need attention, {job.result?.possible_omissions} possible omissions)</span>
-                        : <span className="text-blue-700 animate-pulse">⟳ {job.stage}…</span>}
-                    {job.result?.warning && <span className="block text-amber-800">⚠ {job.result.warning}</span>}
+                        : <span className="text-blue-700 animate-pulse">{job.stage}…</span>}
+                    {job.result?.warning && <span className="block text-amber-800">{job.result.warning}</span>}
+                    {job.result?.ocr && (
+                      <span className="block text-slate-600">
+                        Scan read by OCR on this machine · {job.result.ocr.rows} row(s)
+                        {job.result.ocr.unreadable + job.result.ocr.low_confidence > 0 && (
+                          <button onClick={() => setScanDoc(job.result.document_id)} className="ml-1 font-semibold hover:underline" style={{ color: 'var(--state-extracted)' }}>
+                            ◔ {job.result.ocr.unreadable + job.result.ocr.low_confidence} could not be read reliably — show on page →
+                          </button>
+                        )}
+                      </span>
+                    )}
+                    {job.result?.llm_calls > 0 && (
+                      <button onClick={() => setReceiptJob(job.id)} className="block text-blue-700 hover:underline text-left">
+                        {job.result.redacted} identifier{job.result.redacted === 1 ? '' : 's'} removed before the model call — see what the model saw →
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -264,7 +282,7 @@ function PatientChart() {
               <div className="space-y-2 mt-2">{derived.collapsed.map(factCard)}</div>
             </details>
             <details>
-              <summary className="cursor-pointer text-sm font-semibold" style={{ color: 'var(--state-confirmed)' }}>✔✔ {derived.record.length} doctor-confirmed fact(s) on record</summary>
+              <summary className="cursor-pointer text-sm font-semibold" style={{ color: 'var(--state-confirmed)' }}>✓✓ {derived.record.length} doctor-confirmed fact(s) on record</summary>
               <div className="space-y-2 mt-2">{derived.record.map(factCard)}</div>
             </details>
             {derived.rejected.length > 0 && (
@@ -279,7 +297,7 @@ function PatientChart() {
               <ul className="text-sm space-y-1">
                 {chart.gaps.map((gap: any) => (
                   <li key={gap.key}>
-                    {gap.status === 'captured' ? '✓' : gap.status === 'missing' ? '○' : '⏳'} {gap.label}
+                    {gap.status === 'captured' ? '✓' : gap.status === 'missing' ? '○' : '•'} {gap.label}
                     {gap.status === 'missing' && <span className="text-slate-500"> — not captured yet</span>}
                     {gap.detail && <span className="text-slate-600"> — {gap.detail}</span>}
                   </li>
@@ -292,7 +310,7 @@ function PatientChart() {
           <section className="border-r border-slate-200 p-5 bg-white overflow-y-auto">
             <div className="flex justify-between items-baseline mb-3">
               <h2 className="text-lg font-semibold">SOAP note</h2>
-              <span className="text-xs text-slate-500">{note ? `${note.status}${signed ? ' 🔒' : ''} · ${note.generated_by}` : ''}</span>
+              <span className="text-xs text-slate-500">{note ? `${note.status} · ${note.generated_by}` : ''}</span>
             </div>
             {!note ? <p className="text-sm text-slate-500">No draft yet. Upload a document or a consult recording to start.</p> : (
               <>
@@ -308,13 +326,13 @@ function PatientChart() {
               <div className="mt-6 border-t border-slate-200 pt-4">
                 {signed ? (
                   <>
-                    <p className="font-semibold text-green-800 mb-1">🔒 Signed {fmtDate(note?.signed_at)} — the note is locked</p>
+                    <p className="font-semibold text-green-800 mb-1">Signed {fmtDate(note?.signed_at)} — the note is locked</p>
                     {note?.content_hash && <p className="text-xs font-mono text-slate-500 break-all mb-3">sha256 {note.content_hash}</p>}
                     <div className="flex flex-wrap gap-2">
-                      <a target="_blank" rel="noreferrer" href={fileUrl(`/encounters/${encounter.id}/fhir`)} className="border border-slate-400 rounded px-3 py-1.5 text-sm hover:bg-slate-100">FHIR bundle</a>
+                      <a target="_blank" rel="noreferrer" href={fileUrl(`/encounters/${encounter.id}/fhir`)} className="border border-slate-400 px-3 py-1.5 text-sm hover:bg-slate-100">FHIR bundle</a>
                       {Object.entries(LANG).map(([code, name]) => (
                         <a key={code} target="_blank" rel="noreferrer" href={fileUrl(`/encounters/${encounter.id}/patient-summary?lang=${code}`)}
-                          className="border border-slate-400 rounded px-3 py-1.5 text-sm hover:bg-slate-100">Patient summary · {name}</a>
+                          className="border border-slate-400 px-3 py-1.5 text-sm hover:bg-slate-100">Patient summary · {name}</a>
                       ))}
                     </div>
                   </>
@@ -326,7 +344,7 @@ function PatientChart() {
                     ) : <p className="text-sm text-green-800 mb-3">✓ Everything is reviewed. Ready to sign.</p>}
                     <button disabled={!isDoctor || blockers.length > 0}
                       onClick={() => run(() => post(`/encounters/${encounter.id}/sign`), 'Encounter signed. Facts confirmed, note locked, audit log written.')}
-                      className="bg-green-700 text-white font-semibold py-2 px-4 rounded disabled:opacity-40 hover:bg-green-800">
+                      className="bg-green-700 text-white font-semibold py-2 px-4 disabled:opacity-40 hover:bg-green-800">
                       Sign off &amp; finalise
                     </button>
                     {!isDoctor && <p className="text-xs text-slate-500 mt-2">Only a doctor can sign.</p>}
@@ -338,6 +356,7 @@ function PatientChart() {
 
           {/* provenance */}
           <section className="p-5 bg-slate-100 overflow-y-auto">
+            {scanDoc && <ScanReview key={scanDoc} documentId={scanDoc} onClose={() => setScanDoc(null)} />}
             <SourceViewer fact={derived.selected} onSelectFact={selectFact} />
           </section>
         </div>
@@ -351,11 +370,12 @@ function PatientChart() {
         <AlertDrawer alert={openAlert} facts={chart.facts} canAct={isDoctor} onClose={() => setOpenAlertId(null)}
           onChanged={load} onSelectFact={selectFact} />
       )}
+      {receiptJob && <PrivacyReceipt key={receiptJob} jobId={receiptJob} onClose={() => setReceiptJob(null)} />}
     </div>
   )
 }
 
-const KIND_ICON: Record<string, string> = { encounter: '🩺', document: '📄', alert: '⛔' }
+const KIND_LABEL: Record<string, string> = { encounter: 'Visit', document: 'Document', alert: 'Alert' }
 
 function Timeline({ patientId, onSelectFact }: { patientId: string; onSelectFact: (id: string) => void }) {
   const [events, setEvents] = useState<any[] | null>(null)
@@ -374,7 +394,7 @@ function Timeline({ patientId, onSelectFact }: { patientId: string; onSelectFact
       <div className="flex flex-wrap gap-2 mb-4">
         {filters.map(name => (
           <button key={name} onClick={() => setFilter(name)} aria-pressed={filter === name}
-            className={`text-sm rounded-full px-3 py-1 border capitalize ${filter === name ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-300'}`}>{name}</button>
+            className={`text-sm px-3 py-1 border capitalize ${filter === name ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-300'}`}>{name}</button>
         ))}
       </div>
       {!shown.length && <p className="text-slate-500">Nothing of this kind on the timeline.</p>}
@@ -388,7 +408,7 @@ function Timeline({ patientId, onSelectFact }: { patientId: string; onSelectFact
               {heading && <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mt-4 mb-1">{month}</p>}
               <div className="flex gap-3 text-sm items-baseline">
                 <span className="text-slate-500 w-24 shrink-0">{fmtDate(event.at)}</span>
-                <span>{KIND_ICON[event.kind] || '•'} {isFact && <span className="text-slate-500">{event.kind.slice(5).replace('_', ' ')}: </span>}{event.title}
+                <span>{KIND_LABEL[event.kind] && <span className="text-slate-500">{KIND_LABEL[event.kind]}: </span>}{isFact && <span className="text-slate-500">{event.kind.slice(5).replace('_', ' ')}: </span>}{event.title}
                   <span className="text-slate-500"> · {event.state?.replace('_', ' ')}</span>
                   {isFact && <button onClick={() => onSelectFact(event.ref_id)} className="ml-2 text-blue-700 hover:underline">source →</button>}
                 </span>
@@ -418,18 +438,18 @@ function Search({ patientId, onSelectFact }: { patientId: string; onSelectFact: 
       <form onSubmit={submit} className="flex gap-2 mb-4">
         <input value={q} onChange={e => setQ(e.target.value)} aria-label="Search this patient's record"
           placeholder="Ask about this patient, e.g. “any sulfa allergy?” or “last creatinine”"
-          className="flex-1 border border-slate-300 rounded px-3 py-2 bg-white" />
-        <button disabled={busy} className="bg-blue-600 text-white rounded px-4 font-medium disabled:opacity-50">{busy ? 'Searching…' : 'Search'}</button>
+          className="flex-1 border border-slate-300 px-3 py-2 bg-white" />
+        <button disabled={busy} className="bg-blue-600 text-white px-4 font-medium disabled:opacity-50">{busy ? 'Searching…' : 'Search'}</button>
       </form>
       {error && <p role="alert" className="text-red-700">{error}</p>}
       {result && (
         <>
-          <p className="bg-white border border-slate-200 rounded p-4 mb-4">{result.answer}</p>
+          <p className="bg-white border border-slate-200 p-4 mb-4">{result.answer}</p>
           <ol className="space-y-2">
             {result.evidence.map((fact: any, index: number) => (
               <li key={fact.id}>
-                <button onClick={() => onSelectFact(fact.id)} className="w-full text-left bg-white border border-slate-200 hover:border-blue-500 rounded p-3 text-sm">
-                  <span className="font-mono text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-1.5 py-0.5 mr-2">[{index + 1}]</span>
+                <button onClick={() => onSelectFact(fact.id)} className="w-full text-left bg-white border border-slate-200 hover:border-blue-500 p-3 text-sm">
+                  <span className="font-mono text-xs bg-blue-50 border border-blue-200 text-blue-800 px-1.5 py-0.5 mr-2">[{index + 1}]</span>
                   <span className="font-medium">{fact.assertion === 'denied' ? 'Denied: ' : ''}{fact.display} {factValue(fact)}</span>
                   <span className="text-slate-500"> · {fmtDate(fact.effective_at)} · {fact.fact_type.replace('_', ' ')} · {(STATE[fact.state] || STATE.extracted).label}</span>
                   {fact.raw_text && <span className="block text-slate-600 mt-1">“{fact.raw_text}” — open source →</span>}

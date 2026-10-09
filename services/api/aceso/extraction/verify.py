@@ -10,6 +10,7 @@ from typing import Optional
 from aceso.extraction.terminology import Terminology
 
 VERIFY_THRESHOLD = 0.90
+OCR_REVIEW_BELOW = 0.80  # a row the OCR engine was less sure of than this is never auto-verified
 DEFAULT_SEGMENT_CONFIDENCE = 0.9
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
@@ -65,6 +66,13 @@ def verify(draft: dict, term: Terminology, sex: Optional[str]) -> dict:
         reasons.append(plausibility_reason)
 
     perception = [u.get("confidence") or DEFAULT_SEGMENT_CONFIDENCE for u in draft["units"]]
+    if any(u.get("ocr") for u in draft["units"]):
+        if min(perception) < OCR_REVIEW_BELOW:
+            reasons.append("low_ocr_confidence")
+        # a misread brand can fuzzy-match the wrong drug, so only a literal dictionary hit is trusted
+        brand = (draft.get("dose") or {}).get("brand")
+        if draft["fact_type"] == "medication" and brand and brand not in draft["evidence_text"].lower():
+            reasons.append("ocr_inexact_drug")
     perception_score = sum(perception) / len(perception)
     checks = [match["ok"], plausibility > 0]
     verification_score = sum(1 for ok in checks if ok) / len(checks)

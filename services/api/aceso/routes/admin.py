@@ -1,9 +1,11 @@
 """Admin: audit log, tamper check and system status."""
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from aceso.auth import admin_only, any_role
 from aceso.config import settings
 from aceso.db import tx
+from aceso.privacy import Redactor
 
 router = APIRouter()
 
@@ -26,6 +28,19 @@ def verify_chain(user: dict = Depends(admin_only)):
     with tx() as cur:
         cur.execute("select ok, broken_at from verify_audit_chain()")
         return cur.fetchone()
+
+
+class RedactionPreview(BaseModel):
+    text: str = Field(max_length=5000)
+    patient_name: str = Field(default="", max_length=120)
+
+
+@router.post("/privacy/preview")
+def redaction_preview(body: RedactionPreview, user: dict = Depends(any_role)):
+    """Run the same redactor the pipeline uses on any text. Nothing is stored or sent anywhere."""
+    redactor = Redactor([body.patient_name])
+    sent, spans = redactor.apply(body.text)
+    return {"sent": sent, "spans": spans, "redacted": dict(redactor.counts)}
 
 
 @router.get("/status")

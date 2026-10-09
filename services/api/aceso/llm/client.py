@@ -76,6 +76,22 @@ class OllamaLLM:
         return _with_one_repair(self._call, system, user)
 
 
+class RecordingLLM:
+    """Wraps any client and keeps every prompt handed to it, in order.
+
+    The pipeline stores these as the record of what left the machine, so the
+    record cannot drift from what the adapter was actually given.
+    """
+
+    def __init__(self, inner: LLMClient):
+        self.inner, self.id = inner, inner.id
+        self.sent: list[dict] = []
+
+    def extract_json(self, system: str, user: str) -> dict:
+        self.sent.append({"system": system, "user": user})
+        return self.inner.extract_json(system, user)
+
+
 def _with_one_repair(call, system: str, user: str) -> dict:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     try:

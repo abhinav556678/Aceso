@@ -46,6 +46,29 @@ def lab_report(patient: dict, when: date, results: list[tuple]) -> bytes:
     return make_pdf("Laboratory Report", patient, when, [("Test", "Result", "Unit", "Reference range"), *results])
 
 
+def as_photo(pdf_bytes: bytes, smudge_row: Optional[int] = None, blur: float = 4.0) -> bytes:
+    """The page as a phone photo of the printout: tilted, slightly soft, JPEG.
+
+    `smudge_row` blurs that table row (1 = first result) the way a wet thumb or a
+    fold would, to show a row the OCR cannot trust.
+    """
+    import io
+
+    from PIL import Image, ImageFilter
+    zoom = 2.5
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        pixmap = doc[0].get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    if smudge_row:
+        baseline = 195 + 24 * smudge_row
+        box = (int(40 * zoom), int((baseline - 15) * zoom), int(555 * zoom), int((baseline + 7) * zoom))
+        image.paste(image.crop(box).filter(ImageFilter.GaussianBlur(blur)), box)
+    image = image.rotate(3.5, expand=True, fillcolor=(236, 233, 226)).filter(ImageFilter.GaussianBlur(1.1))
+    out = io.BytesIO()
+    image.save(out, format="JPEG", quality=62)
+    return out.getvalue()
+
+
 class ScriptedLLM:
     """Stands in for the model during seeding: returns the scenario's known facts.
 
@@ -223,9 +246,15 @@ def write_samples(today: date) -> list[Path]:
     SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
     meena = {"full_name": "Meena Rajan", "mrn": "ACE-0001"}
     labs = SAMPLES_DIR / "S1_meena_labs_today.pdf"
-    labs.write_bytes(lab_report(meena, today - timedelta(days=3), [
+    report = lab_report(meena, today - timedelta(days=3), [
         ("Creatinine, serum", "2.1", "mg/dL", "0.6 - 1.1"), ("HbA1c", "7.9", "%", "4.0 - 5.6"),
-        ("Potassium", "4.8", "mmol/L", "3.5 - 5.1")]))
+        ("Potassium", "4.8", "mmol/L", "3.5 - 5.1")])
+    labs.write_bytes(report)
+    # the same report as a phone photo, and once more with the potassium row smudged (read by local OCR)
+    photo = SAMPLES_DIR / "S1_meena_labs_photo.jpg"
+    photo.write_bytes(as_photo(report))
+    smudged = SAMPLES_DIR / "S1_meena_labs_photo_smudged.jpg"
+    smudged.write_bytes(as_photo(report, smudge_row=3))
     typo = SAMPLES_DIR / "S1_meena_labs_misprint.pdf"
     typo.write_bytes(lab_report(meena, today - timedelta(days=3), [("Creatinine, serum", "21", "mg/dL", "0.6 - 1.1")]))
     transcript = SAMPLES_DIR / "S6_karthik_followup.txt"
@@ -234,7 +263,7 @@ def write_samples(today: date) -> list[Path]:
         "[00:09-00:15] Patient: The fever is gone but I still have a cough.\n"
         "[00:20-00:27] Doctor: Blood pressure is 124 over 80. Continue paracetamol 500 twice daily for two more days.\n"
         "[00:28-00:33] Doctor: Review in 1 week if the cough continues.\n", encoding="utf-8")
-    return [labs, typo, transcript]
+    return [labs, typo, transcript, photo, smudged]
 
 
 def seed_demo(reseed: bool = False, s1_labs_preloaded: bool = False, log=print) -> None:

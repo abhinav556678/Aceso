@@ -114,6 +114,46 @@ def test_redactor_removes_name_phone_and_mrn():
     assert "Serum Creatinine 2.1" in out and "Continue Glycomet" in out  # clinical text is untouched
 
 
+def test_redactor_reports_what_it_removed_and_where():
+    redactor = Redactor(["Meena Rajan"])
+    text = "Patient:MeenaRajan DOB: 12/03/1976. Seen by Dr. Rao. Continue Glycomet 500 BD"
+    sent, spans = redactor.apply(text)
+    assert sent == "Patient:<PERSON> DOB: <DOB>. Seen by Dr. <PERSON>. Continue Glycomet 500 BD"
+    assert [(text[a:b], label) for a, b, label in spans] == [("MeenaRajan", "PERSON"), ("12/03/1976", "DOB"), ("Rao", "PERSON")]
+    assert redactor.counts == {"PERSON": 2, "DOB": 1}
+
+
+def test_redactor_catches_an_unregistered_name_but_not_a_denial():
+    redactor = Redactor(["Karthik S"])
+    assert redactor.redact("Name: Suresh Kumar Age: 50 Sex: M") == "Name: <PERSON> Age: 50 Sex: M"
+    assert redactor.redact("Patient: Meena Rajan MRN: ACE-0001") == "Patient: <PERSON> MRN: <MRN>"
+    assert redactor.redact("Patient: No allergies. Ramipril 5 mg OD") == "Patient: No allergies. Ramipril 5 mg OD"
+
+
+def test_ocr_rows_survive_a_tilted_photo_and_flag_unread_ink():
+    from aceso.perception import ocr, pdf
+    tilt = lambda x, y: [x + 0.06 * y, y - 0.06 * x]   # a page photographed about 3.5 degrees off
+    cell = lambda x, y, w, text, score: ([tilt(x, y), tilt(x + w, y), tilt(x + w, y + 30), tilt(x, y + 30)], text, score)
+    rows = ocr.group_rows([cell(700, 500, 50, "2.1", 0.99), cell(100, 500, 220, "Creatinine, serum", 0.97),
+                           cell(900, 500, 80, "mg/dL", 0.98),
+                           cell(100, 560, 90, "HbA1c", 0.99), cell(700, 560, 50, "7.9", 0.99),
+                           cell(700, 620, 50, "4.8", 0.95), cell(100, 620, 130, "", 0.0)], 1600, 2200)
+    assert [(r["text"], r["confidence"]) for r in rows] == [
+        ("Creatinine, serum 2.1 mg/dL", 0.97), ("HbA1c 7.9", 0.99), ("4.8", 0.0)]
+    box = pdf.locate(rows[0], "2.1")
+    assert box["w"] < 0.05 and abs(box["x"] - tilt(700, 500)[0] / 1600) < 0.01  # the value, not the row
+
+
+def test_fact_from_a_low_confidence_scan_row_is_held():
+    scanned = lambda confidence: verify(
+        {"fact_type": "symptom", "assertion": "present", "raw_text": "fever", "evidence_text": "fever for two days",
+         "units": [{"kind": "block", "confidence": confidence, "ocr": True}], "attention_reasons": []},
+        Terminology(), None)
+    assert scanned(0.95)["state"] == "verified"
+    held = scanned(0.70)
+    assert held["state"] == "extracted" and held["attention_reasons"] == ["low_ocr_confidence"]
+
+
 def test_soap_guards():
     fact = {"fact_type": "lab_result", "assertion": "present", "display": "Creatinine, serum", "raw_text": "2.1",
             "value_num": 2.1, "unit": "mg/dL", "dose": None, "value_text": None, "created_by": "system:pipeline"}

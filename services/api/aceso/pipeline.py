@@ -4,19 +4,23 @@ Runs in a background thread per upload; progress is written to the `jobs` row
 so the UI can poll it. Each stage commits on its own, so a late failure never
 leaves facts without provenance.
 """
+import hashlib
 import logging
 import os
 import re
+from collections import Counter
 from datetime import datetime, time, timezone
 from typing import Optional
 
+from psycopg.types.json import Jsonb
+
 from aceso import soap
 from aceso.db import audit, tx
-from aceso.extraction.extract import PROMPT_VERSION, extract
+from aceso.extraction.extract import CHUNK_UNITS, PROMPT_VERSION, extract
 from aceso.extraction.terminology import Terminology
-from aceso.extraction.verify import find_omissions, verify
-from aceso.llm.client import LLMError, get_llm
-from aceso.perception import pdf, stt
+from aceso.extraction.verify import OCR_REVIEW_BELOW, find_omissions, verify
+from aceso.llm.client import LLMError, RecordingLLM, get_llm
+from aceso.perception import ocr, pdf, stt
 from aceso.privacy import Redactor
 from aceso.safety import engine
 
@@ -95,23 +99,34 @@ def _load_blob(source_id) -> bytes:
 
 def _run_document(job: dict, source_id, llm=None) -> dict:
     _stage(job["id"], "Reading document layout")
-    blocks = pdf.parse_pdf(_load_blob(source_id))
+    content = _load_blob(source_id)
+    scanning = lambda: _stage(job["id"], "Reading the scan with OCR on this machine")
+    if pdf.is_pdf(content):
+        blocks = pdf.parse_pdf(content, on_scan=scanning)
+    else:
+        scanning()
+        blocks = ocr.parse_image(content)
     doc_date = pdf.find_document_date(blocks)
     with tx() as cur:
         cur.execute("update source_documents set status = 'ocr_running', kind = %s, doc_date = %s, page_count = %s, "
-                    "ocr_engine = 'pdf-text-layer' where id = %s",
-                    (pdf.guess_kind(blocks), doc_date, max(b["page_no"] for b in blocks), source_id))
+                    "ocr_engine = %s where id = %s",
+                    (pdf.guess_kind(blocks), doc_date, max(b["page_no"] for b in blocks),
+                     "+".join(sorted({b["engine"] for b in blocks})), source_id))
         for block in blocks:
             cur.execute(
                 "insert into ocr_blocks(document_id, page_no, block_idx, kind, text, confidence, x, y, w, h, table_ref) "
                 "values (%s, %s, %s, 'line', %s, %s, %s, %s, %s, %s, %s) returning id",
-                (source_id, block["page_no"], block["block_idx"], block["text"], pdf.TEXT_LAYER_CONFIDENCE,
+                (source_id, block["page_no"], block["block_idx"], block["text"], block["confidence"],
                  block["x"], block["y"], block["w"], block["h"], {"words": block["words"]}))
             block["id"] = cur.fetchone()["id"]
+    # a row the OCR could not read is shown to the doctor as unreadable; it is not evidence
+    readable = [b for b in blocks if b["confidence"] >= ocr.UNREADABLE_BELOW]
     units = [{"id": f"B{i}", "kind": "block", "db_id": b["id"], "text": b["text"], "page_no": b["page_no"],
-              "confidence": pdf.TEXT_LAYER_CONFIDENCE, "block": b} for i, b in enumerate(blocks, start=1)]
+              "confidence": b["confidence"], "ocr": b["engine"] == ocr.ENGINE, "block": b}
+             for i, b in enumerate(readable, start=1)]
     effective = datetime.combine(doc_date, time(12), tzinfo=timezone.utc) if doc_date else datetime.now(timezone.utc)
     result = _extract_and_store(job, units, "document", source_id, effective, llm)
+    result.update(document_id=str(source_id), ocr=ocr.summary(blocks, OCR_REVIEW_BELOW))
     with tx() as cur:
         cur.execute("update source_documents set status = 'done' where id = %s", (source_id,))
     return result
@@ -156,20 +171,25 @@ def _extract_and_store(job: dict, units: list[dict], source: str, source_id, eff
         cur.execute("select full_name, sex from patients where id = %s", (patient_id,))
         patient = cur.fetchone()
 
-    _stage(job["id"], "Extracting facts")
     redactor = Redactor([patient["full_name"]])
-    warning, drafts, rejected = None, [], []
+    for unit in units:
+        unit["sent"], unit["redactions"] = redactor.apply(unit["text"])
+    _stage(job["id"], f"Redacted {redactor.count} identifier{'' if redactor.count == 1 else 's'} · extracting facts")
+    warning, drafts, rejected, recorder = None, [], [], None
     try:
-        llm = llm or get_llm()
-        drafts, rejected = extract(llm, units, term, redactor)
-        with tx() as cur:
-            audit(cur, "llm.call", "job", job["id"], patient_id,
-                  {"model": llm.id, "prompt": PROMPT_VERSION, "units": len(units),
-                   "entities_redacted": redactor.count, "facts_rejected": len(rejected)})
+        recorder = RecordingLLM(llm or get_llm())
+        drafts, rejected = extract(recorder, units, term)
     except LLMError as exc:
         # the note is never blocked by the model: dictionary detections go to the review queue instead
         warning = f"Language model unavailable ({exc}). Dictionary detections were queued for manual review."
         logger.warning(warning)
+    if recorder and recorder.sent:
+        with tx() as cur:
+            hashes = _store_llm_calls(cur, job, recorder, units, failed=warning)
+            audit(cur, "llm.call", "job", job["id"], patient_id,
+                  {"model": recorder.id, "prompt": PROMPT_VERSION, "units": len(units),
+                   "entities_redacted": redactor.count, "redacted": dict(redactor.counts),
+                   "sent_sha256": hashes, "facts_rejected": len(rejected), "failed": bool(warning)})
 
     _stage(job["id"], f"Verifying {len(drafts)} facts")
     facts = [verify(d, term, patient["sex"]) for d in drafts]
@@ -185,7 +205,31 @@ def _extract_and_store(job: dict, units: list[dict], source: str, source_id, eff
         soap.regenerate(cur, encounter_id)
     return {"facts": len(facts), "verified": sum(1 for f in facts if f["state"] == "verified"),
             "needs_attention": sum(1 for f in facts if f["state"] != "verified"),
-            "possible_omissions": len(omissions), "rejected_model_outputs": len(rejected), "warning": warning}
+            "possible_omissions": len(omissions), "rejected_model_outputs": len(rejected), "warning": warning,
+            "redacted": redactor.count, "llm_calls": len(recorder.sent) if recorder else 0}
+
+
+def _store_llm_calls(cur, job: dict, recorder: RecordingLLM, units: list[dict], failed: Optional[str]) -> list[str]:
+    """Keep exactly what was handed to the model, one row per call. Returns each call's SHA-256.
+
+    The hashes go into the audit chain, so a stored payload that is edited later no longer matches.
+    Originals are not copied here: each unit points at its source row.
+    """
+    hashes = []
+    for seq, call in enumerate(recorder.sent):
+        chunk = units[seq * CHUNK_UNITS:(seq + 1) * CHUNK_UNITS]
+        digest = hashlib.sha256(f"{call['system']}\n\n{call['user']}".encode()).hexdigest()
+        hashes.append(digest)
+        last = seq == len(recorder.sent) - 1
+        cur.execute(
+            "insert into llm_calls(job_id, patient_id, seq, model, prompt_version, system_prompt, user_message, "
+            "sha256, units, redacted, error) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (job["id"], job["patient_id"], seq, recorder.id, PROMPT_VERSION, call["system"], call["user"], digest,
+             Jsonb([{"unit": u["id"], "kind": u["kind"], "ref": str(u["db_id"]), "sent": u["sent"],
+                     "spans": u["redactions"]} for u in chunk]),
+             dict(Counter(label for u in chunk for _, _, label in u["redactions"])),
+             failed if failed and last else None))
+    return hashes
 
 
 def _needle(fact: dict) -> str:

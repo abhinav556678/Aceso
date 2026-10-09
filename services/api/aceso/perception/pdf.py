@@ -1,25 +1,32 @@
 """PDF perception: text lines with normalised bounding boxes.
 
-Reads the PDF's text layer (exact boxes, no OCR engine to install). Scanned
-PDFs without a text layer are rejected with a clear message; plugging Tesseract
-or Azure Document Intelligence in here is the upgrade path.
+Pages with a text layer are read from it (exact boxes). Pages without one are
+scans: they are rendered and read by the local OCR engine (perception/ocr.py),
+which reports a confidence per row.
 """
 import re
 from datetime import date, datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import pymupdf as fitz
+from PIL import Image
 
+from aceso.perception import ocr
+
+TEXT_LAYER = "pdf-text-layer"
 TEXT_LAYER_CONFIDENCE = 0.99
 ROW_TOLERANCE_PT = 3.0
+SCAN_ZOOM = 2.5  # ~180 dpi, enough for printed text
 
 
-class NoTextLayer(ValueError):
-    pass
+def is_pdf(content: bytes) -> bool:
+    return b"%PDF-" in content[:1024]
 
 
-def parse_pdf(content: bytes) -> list[dict]:
-    """One block per visual text row: {page_no, block_idx, text, x, y, w, h, words[]}.
+def parse_pdf(content: bytes, on_scan: Optional[Callable[[], None]] = None) -> list[dict]:
+    """One block per visual text row: {page_no, block_idx, text, confidence, engine, x, y, w, h, words[]}.
+
+    `on_scan` is called once, before the first page that needs OCR.
 
     Coordinates are 0..1 relative to the page so they survive zoom. Words on the
     same baseline are merged into one row, which keeps a lab table row
@@ -30,6 +37,14 @@ def parse_pdf(content: bytes) -> list[dict]:
         for page_no, page in enumerate(doc, start=1):
             pw, ph = page.rect.width, page.rect.height
             words = sorted(page.get_text("words"), key=lambda w: (round(w[1]), w[0]))
+            if not words:
+                if on_scan:
+                    on_scan()
+                    on_scan = None
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(SCAN_ZOOM, SCAN_ZOOM), alpha=False)
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                blocks += ocr.read_rows(image, page_no)
+                continue
             rows: list[list] = []
             for word in words:
                 if rows and abs(rows[-1][0][1] - word[1]) <= ROW_TOLERANCE_PT:
@@ -43,13 +58,13 @@ def parse_pdf(content: bytes) -> list[dict]:
                 blocks.append({
                     "page_no": page_no, "block_idx": idx,
                     "text": " ".join(w[4] for w in row),
+                    "confidence": TEXT_LAYER_CONFIDENCE, "engine": TEXT_LAYER,
                     "x": x0 / pw, "y": y0 / ph, "w": (x1 - x0) / pw, "h": (y1 - y0) / ph,
                     "words": [{"t": w[4], "x": w[0] / pw, "y": w[1] / ph,
                                "w": (w[2] - w[0]) / pw, "h": (w[3] - w[1]) / ph} for w in row],
                 })
-    if not blocks:
-        raise NoTextLayer("This PDF has no text layer (it looks like a scan). "
-                          "Scanned-document OCR is not enabled in this prototype.")
+    if not any(b["text"] for b in blocks):
+        raise ocr.NoReadableText("No text could be found in this PDF.")
     return blocks
 
 
@@ -88,7 +103,8 @@ _MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
 _DATE_PATTERNS = [
     (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), lambda m: (int(m[1]), int(m[2]), int(m[3]))),
     (re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b"), lambda m: (int(m[3]), int(m[2]), int(m[1]))),
-    (re.compile(r"\b(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})\b"),
+    # \s* not \s+: OCR often drops the spaces inside a printed date ("06Oct2026")
+    (re.compile(r"\b(\d{1,2})\s*([A-Za-z]{3})[a-z]*\.?,?\s*(\d{4})\b"),
      lambda m: (int(m[3]), _MONTHS.index(m[2].lower()) + 1 if m[2].lower() in _MONTHS else 0, int(m[1]))),
 ]
 

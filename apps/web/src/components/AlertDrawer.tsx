@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { post } from '../lib/api'
 
 export const SEVERITY: Record<string, { icon: string; label: string; color: string }> = {
-  critical: { icon: '⛔', label: 'Critical', color: 'var(--sev-critical)' },
-  high: { icon: '⚠', label: 'High', color: 'var(--sev-high)' },
-  moderate: { icon: '▲', label: 'Moderate', color: 'var(--sev-moderate)' },
-  info: { icon: 'ℹ', label: 'Info', color: 'var(--sev-info)' },
+  critical: { icon: '■', label: 'Critical', color: 'var(--sev-critical)' },
+  high: { icon: '▲', label: 'High', color: 'var(--sev-high)' },
+  moderate: { icon: '◆', label: 'Moderate', color: 'var(--sev-moderate)' },
+  info: { icon: '○', label: 'Info', color: 'var(--sev-info)' },
 }
 
 /** The "Explain" drawer: the rule, every input it used, and where each input came from. */
@@ -43,7 +43,7 @@ export default function AlertDrawer({ alert, facts, canAct, onClose, onChanged, 
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Alert explanation">
-      <div className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col">
+      <div className="w-full max-w-xl bg-white h-full flex flex-col">
         <header className="p-5 border-b border-slate-200 flex justify-between items-start gap-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide" style={{ color: severity.color }}>{severity.icon} {severity.label} · {alert.status}</p>
@@ -54,18 +54,18 @@ export default function AlertDrawer({ alert, facts, canAct, onClose, onChanged, 
 
         <div className="p-5 overflow-y-auto flex-1 text-sm">
           <h3 className="font-semibold text-slate-500 uppercase tracking-wide text-xs mb-1">Rule</h3>
-          <p className="font-mono bg-slate-100 border border-slate-200 rounded px-3 py-2">{trace.rule?.id} · v{trace.rule?.version}</p>
+          <p className="font-mono bg-slate-100 border border-slate-200 px-3 py-2">{trace.rule?.id} · v{trace.rule?.version}</p>
           <p className="text-slate-600 mt-1 mb-5">Source: {trace.rule?.source}</p>
 
           <h3 className="font-semibold text-slate-500 uppercase tracking-wide text-xs mb-2">How the engine got here</h3>
           <ol className="border-l-2 border-slate-200 ml-2 space-y-4">
             {trace.steps.map((step: any, index: number) => (
               <li key={index} className="pl-4 relative">
-                <span className="absolute -left-[9px] top-0.5 w-4 h-4 rounded-full bg-white border-2 border-slate-400" aria-hidden />
+                <span className="absolute -left-[9px] top-0.5 w-4 h-4 bg-white border-2 border-slate-400" aria-hidden />
                 <p className="font-medium">
                   {step.label}
                   {step.value !== undefined && <span className="font-mono"> = {step.value} {step.unit}</span>}
-                  {step.result !== undefined && <span className="ml-2 font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300">{step.result ? '✓ TRUE' : '✕ FALSE'}</span>}
+                  {step.result !== undefined && <span className="ml-2 font-mono text-xs px-1.5 py-0.5 bg-slate-100 border border-slate-300">{step.result ? '✓ TRUE' : '✕ FALSE'}</span>}
                   {factLink(step.fact_id)}
                 </p>
                 {step.formula && <p className="text-slate-600">Formula: {step.formula} (computed in code)</p>}
@@ -108,18 +108,18 @@ export default function AlertDrawer({ alert, facts, canAct, onClose, onChanged, 
                 )}
                 <label className="block text-sm font-semibold" htmlFor="reason">Reason (written to the audit log, min. 10 characters)</label>
                 <textarea id="reason" value={reason} onChange={e => setReason(e.target.value)} rows={2}
-                  className="w-full border border-slate-300 rounded p-2 text-sm bg-white" />
+                  className="w-full border border-slate-300 p-2 text-sm bg-white" />
                 {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
                 <div className="flex gap-3">
                   {isContradiction ? (
                     <button disabled={busy || !reasonOk || !keep} onClick={() => act('resolve', { keep_fact_id: keep, reason })}
-                      className="flex-1 bg-blue-600 text-white font-semibold py-2 rounded disabled:opacity-40">Resolve contradiction</button>
+                      className="flex-1 bg-blue-600 text-white font-semibold py-2 disabled:opacity-40">Resolve contradiction</button>
                   ) : (
                     <>
                       <button disabled={busy || !reasonOk} onClick={() => act('acknowledge', { reason })}
-                        className="flex-1 bg-blue-600 text-white font-semibold py-2 rounded disabled:opacity-40">Acknowledge</button>
+                        className="flex-1 bg-blue-600 text-white font-semibold py-2 disabled:opacity-40">Acknowledge</button>
                       <button disabled={busy || !reasonOk} onClick={() => act('override', { reason })}
-                        className="flex-1 bg-white border border-slate-400 font-semibold py-2 rounded disabled:opacity-40">Override…</button>
+                        className="flex-1 bg-white border border-slate-400 font-semibold py-2 disabled:opacity-40">Override…</button>
                     </>
                   )}
                 </div>
