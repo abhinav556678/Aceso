@@ -132,3 +132,90 @@ insert into safety_alerts (id, patient_id, encounter_id, rule_id, severity, mess
  ('al000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'e0000000-0000-4000-8000-000000000001', 'KDIGO-METFORMIN-EGFR30', 'critical', 'Metformin is contraindicated when eGFR < 30 mL/min/1.73 m²', 'open', '{f0000000-0000-4000-8000-000000000001,f0000000-0000-4000-8000-000000000002}', '{"steps": [{"label": "Medication on list", "result": true, "fact_id": "f0000000-0000-4000-8000-000000000002"}, {"label": "Computed eGFR", "value": 28.2, "unit": "mL/min/1.73 m\u00b2"}], "conclusion": "Metformin is contraindicated when eGFR < 30"}')
 on conflict do nothing;
 
+
+-- ==========================================
+-- S2 Golden Data: Allergy Contradiction
+-- ==========================================
+insert into encounters (id, patient_id, doctor_id, status) values
+  ('e0000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
+on conflict do nothing;
+
+-- Historical fact: Penicillin allergy from 2024
+insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
+                  effective_at,state,confidence,source,code_system,code) values
+ ('f0000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000002',null,
+  'allergy','present','Penicillin (rash)','Allergy: Penicillin (rash)',
+  now() - interval '2 years','verified',0.99,'document', 'RxNorm', 'penicillin'),
+ -- Today fact 1: Patient says "no allergies"
+ ('f0000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000002',
+  'allergy','denied','allergies','no allergies',
+  now(),'verified',0.95,'audio', null, null),
+ -- Today fact 2: Doctor prescribes Mox (amoxicillin)
+ ('f0000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000002',
+  'medication','present','Mox (amoxicillin)','prescribe Mox',
+  now(),'verified',0.95,'audio', 'RxNorm', 'amoxicillin')
+on conflict (id) do nothing;
+
+-- ==========================================
+-- S3 Golden Data: Negation
+-- ==========================================
+insert into encounters (id, patient_id, doctor_id, status) values
+  ('e0000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000003', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
+on conflict do nothing;
+
+insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
+                  effective_at,state,confidence,source,code_system,code) values
+ ('f0000000-0000-4000-8000-000000000020','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
+  'diagnosis','denied','diabetes','no diabetes',
+  now(),'verified',0.99,'audio', 'ICD10', 'E11'),
+ ('f0000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
+  'allergy','denied','sulfa','not allergic to sulfa',
+  now(),'verified',0.99,'audio', 'RxNorm', 'sulfamethoxazole'),
+ ('f0000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
+  'symptom','denied','chest pain','no chest pain',
+  now(),'verified',0.99,'audio', 'SNOMED', 'chest_pain'),
+ ('f0000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000003','e0000000-0000-4000-8000-000000000003',
+  'medication','present','Septran (co-trimoxazole)','prescribed Septran',
+  now(),'verified',0.99,'audio', 'RxNorm', 'co-trimoxazole')
+on conflict (id) do nothing;
+
+-- ==========================================
+-- S4 Golden Data: Duplicate, Dose, Interaction
+-- ==========================================
+insert into encounters (id, patient_id, doctor_id, status) values
+  ('e0000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000004', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
+on conflict do nothing;
+
+insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
+                  effective_at,state,confidence,source,code_system,code,value_num,unit,dose) values
+ ('f0000000-0000-4000-8000-000000000030','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
+  'medication','present','Ecosprin 75','Ecosprin 75',
+  now(),'verified',0.99,'audio', 'RxNorm', 'aspirin', 75, 'mg', '{"daily_mg": 75}'),
+ ('f0000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
+  'medication','present','Warf','Warf',
+  now(),'verified',0.99,'audio', 'RxNorm', 'warfarin', null, null, null),
+ ('f0000000-0000-4000-8000-000000000032','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
+  'medication','present','Dolo 650 QID','Dolo 650 QID',
+  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', 650, 'mg', '{"daily_mg": 2600}'),
+ ('f0000000-0000-4000-8000-000000000033','00000000-0000-4000-8000-000000000004','e0000000-0000-4000-8000-000000000004',
+  'medication','present','Crocin 650 TDS','Crocin 650 TDS',
+  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', 650, 'mg', '{"daily_mg": 1950}')
+on conflict (id) do nothing;
+
+-- ==========================================
+-- S6 Golden Data: Control
+-- ==========================================
+insert into encounters (id, patient_id, doctor_id, status) values
+  ('e0000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000006', 'u0000000-0000-4000-8000-000000000001', 'in_progress')
+on conflict do nothing;
+
+insert into facts(id,patient_id,encounter_id,fact_type,assertion,display,raw_text,
+                  effective_at,state,confidence,source,code_system,code,value_num,unit,dose) values
+ ('f0000000-0000-4000-8000-000000000050','00000000-0000-4000-8000-000000000006','e0000000-0000-4000-8000-000000000006',
+  'diagnosis','present','viral URI','viral URI',
+  now(),'verified',0.99,'audio', 'ICD10', 'J06.9', null, null, null),
+ ('f0000000-0000-4000-8000-000000000051','00000000-0000-4000-8000-000000000006','e0000000-0000-4000-8000-000000000006',
+  'medication','present','paracetamol','paracetamol',
+  now(),'verified',0.99,'audio', 'RxNorm', 'paracetamol', null, null, null)
+on conflict (id) do nothing;
+
