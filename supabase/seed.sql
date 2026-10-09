@@ -130,12 +130,21 @@ insert into safety_rules (id, title, rule_type, guideline_source, severity, rule
 on conflict (id) do update set title=excluded.title, rule_type=excluded.rule_type,
   guideline_source=excluded.guideline_source, severity=excluded.severity, rule=excluded.rule;
 
--- ---------- the six synthetic patients ----------
+-- ---------- synthetic patients: six planted scenarios (1-6) and nine background charts (7-15) ----------
 insert into patients(id,mrn,full_name,dob,sex,preferred_lang) values
  ('00000000-0000-4000-8000-000000000001','ACE-0001','Meena Rajan',        (current_date - interval '50 years 2 months')::date,'F','ta'),
  ('00000000-0000-4000-8000-000000000002','ACE-0002','Arjun Menon',        (current_date - interval '45 years 2 months')::date,'M','en'),
  ('00000000-0000-4000-8000-000000000003','ACE-0003','Lakshmi Narayanan',  (current_date - interval '58 years 2 months')::date,'F','ta'),
  ('00000000-0000-4000-8000-000000000004','ACE-0004','Suresh Babu',        (current_date - interval '72 years 2 months')::date,'M','ta'),
  ('00000000-0000-4000-8000-000000000005','ACE-0005','Fatima Begum',       (current_date - interval '55 years 2 months')::date,'F','hi'),
- ('00000000-0000-4000-8000-000000000006','ACE-0006','Karthik S',          (current_date - interval '34 years 2 months')::date,'M','en')
+ ('00000000-0000-4000-8000-000000000006','ACE-0006','Karthik S',          (current_date - interval '34 years 2 months')::date,'M','en'),
+ ('00000000-0000-4000-8000-000000000007','ACE-0007','Anitha Krishnan',    (current_date - interval '41 years 5 months')::date,'F','ta'),
+ ('00000000-0000-4000-8000-000000000008','ACE-0008','Mohammed Irfan',     (current_date - interval '63 years 1 month')::date,'M','hi'),
+ ('00000000-0000-4000-8000-000000000009','ACE-0009','Revathi Sundaram',   (current_date - interval '67 years 8 months')::date,'F','ta'),
+ ('00000000-0000-4000-8000-000000000010','ACE-0010','Vikram Nair',        (current_date - interval '29 years 3 months')::date,'M','en'),
+ ('00000000-0000-4000-8000-000000000011','ACE-0011','Deepa Iyer',         (current_date - interval '52 years 6 months')::date,'F','en'),
+ ('00000000-0000-4000-8000-000000000012','ACE-0012','Ramesh Gupta',       (current_date - interval '70 years 4 months')::date,'M','hi'),
+ ('00000000-0000-4000-8000-000000000013','ACE-0013','Sneha Pillai',       (current_date - interval '36 years 9 months')::date,'F','en'),
+ ('00000000-0000-4000-8000-000000000014','ACE-0014','Joseph Mathew',      (current_date - interval '58 years 7 months')::date,'M','en'),
+ ('00000000-0000-4000-8000-000000000015','ACE-0015','Nandini Shetty',     (current_date - interval '24 years 2 months')::date,'F','hi')
 on conflict (id) do nothing;

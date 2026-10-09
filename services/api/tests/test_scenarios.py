@@ -17,6 +17,9 @@ EXPECTED_ALERTS = {
     4: {"INT-PAIR", "DUP-THERAPY", "DOSE-MAX-DAILY"},
     5: set(),
     6: set(),                                              # healthy control: false-positive check
+    # background charts: one alert each on two of them, nothing on the rest
+    7: set(), 8: set(), 9: {"ALLERGY-CONFLICT"}, 10: set(), 11: {"DOSE-MAX-DAILY"},
+    12: set(), 13: set(), 14: set(), 15: set(),
 }
 
 
@@ -215,3 +218,10 @@ def test_sign_in_sets_a_session_and_wrong_passwords_are_refused(client, monkeypa
     finally:
         client.cookies.clear()
     assert client.get("/api/patients").status_code == 401
+
+
+@pytest.mark.parametrize("n", range(7, 16))
+def test_background_charts_start_with_nothing_unverified(client, n):
+    data = chart(client, n)
+    assert data["encounter"] and data["encounter"]["status"] != "signed"  # an open visit to work in
+    assert [f["display"] for f in data["facts"] if f["state"] == "extracted"] == []

@@ -56,4 +56,4 @@ def as_role(role: str) -> dict:
     return {"X-Demo-Role": role}
 
 
-PATIENTS = {n: f"00000000-0000-4000-8000-00000000000{n}" for n in range(1, 7)}
+PATIENTS = {n: f"00000000-0000-4000-8000-{n:012d}" for n in range(1, 16)}

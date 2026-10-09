@@ -1,4 +1,4 @@
-"""Synthetic demo data: the six planted scenarios from the build guide.
+"""Synthetic demo data: the six planted scenarios from the build guide, plus nine background charts.
 
 Each scenario's PDFs and transcripts are generated here and pushed through the
 real pipeline (perception, normalisation, verification, safety, SOAP) with a
@@ -20,7 +20,8 @@ from aceso.pipeline import create_job, run_job
 from aceso.routes import review
 
 SAMPLES_DIR = REPO_ROOT / "data" / "synthetic"
-PATIENT = "00000000-0000-4000-8000-00000000000{}"
+PATIENT = "00000000-0000-4000-8000-{:012d}"
+DEMO_PATIENTS = range(1, 16)  # 1-6 are the planted scenarios, 7-15 are background charts
 COLUMNS = (60, 300, 380, 450)
 
 
@@ -209,6 +210,165 @@ def scenarios(today: date, s1_labs_preloaded: bool) -> list[dict]:
                             "name": "allergies", "raw_text": "No allergies"},
                            {"find": "viral URI", "fact_type": "diagnosis", "name": "viral URI", "raw_text": "viral URI"},
                            med("paracetamol", "paracetamol", "paracetamol 500 three times daily")]}]}]},
+    ] + background_patients()
+
+
+def background_patients() -> list[dict]:
+    """Nine more charts (patients 7-15) so the list looks like a working clinic.
+
+    Two of them carry one alert each; one has an overdue follow-up; the rest are quiet.
+    They use only drugs, tests and diagnoses from the seeded dictionaries, and every
+    dictionary term in a source is covered by a fact, so no chart starts with a
+    "possible omission".
+    """
+    lab_rows = lambda *rows: [("Test", "Result", "Unit", "Reference range"), *rows]
+    diagnosis = lambda name: {"find": "Diagnosis", "fact_type": "diagnosis", "name": name, "raw_text": name}
+    symptom = lambda quote, name: {"find": quote, "fact_type": "symptom", "name": name, "raw_text": quote}
+    plan = lambda text: {"find": text, "fact_type": "plan_item", "name": text, "raw_text": text}
+    no_allergies = {"find": "No allergies", "fact_type": "allergy", "assertion": "denied", "name": "allergies",
+                    "raw_text": "No allergies"}
+
+    def blood_pressure(systolic: int, diastolic: int) -> tuple[str, list[dict]]:
+        quote = f"Blood pressure is {systolic} over {diastolic}"
+        vital = lambda name, value: {"find": quote, "fact_type": "vital", "name": name, "raw_text": quote,
+                                     "value_num": value, "unit": "mmHg"}
+        return f"Doctor: {quote}.", [vital("Systolic blood pressure", systolic), vital("Diastolic blood pressure", diastolic)]
+
+    bp_8, bp_8_facts = blood_pressure(134, 84)
+    bp_12, bp_12_facts = blood_pressure(128, 78)
+    bp_14, bp_14_facts = blood_pressure(132, 82)
+    return [
+        {"key": "B7_acidity", "patient": 7, "visits": [
+            {"days_ago": 120, "complaint": "Cold and cough", "signed": True, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    "[00:05-00:10] Patient: I have a runny nose and cough for three days.",
+                    "[00:12-00:14] Doctor: Any allergies?",
+                    "[00:15-00:16] Patient: No allergies.",
+                    "[00:30-00:37] Doctor: This is a viral URI. Take Calpol 500 three times daily for three days."],
+                 "facts": [symptom("runny nose and cough", "cough"), no_allergies,
+                           {"find": "viral URI", "fact_type": "diagnosis", "name": "viral URI", "raw_text": "viral URI"},
+                           med("Calpol", "Calpol", "Calpol 500 three times daily")]}]},
+            {"days_ago": 0, "complaint": "Acidity", "signed": False, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    "[00:04-00:10] Patient: I get a burning feeling in my stomach after meals.",
+                    "[00:12-00:15] Doctor: Any allergies to medicines?",
+                    "[00:16-00:17] Patient: No allergies.",
+                    "[00:28-00:35] Doctor: Take Pantocid 40 once daily before breakfast for two weeks.",
+                    "[00:36-00:40] Doctor: Review in 2 weeks if it continues."],
+                 "facts": [symptom("burning feeling in my stomach after meals", "burning after meals"), no_allergies,
+                           med("Pantocid", "Pantocid", "Pantocid 40 once daily"), plan("Review in 2 weeks")]}]}]},
+
+        {"key": "B8_diabetes_stable", "patient": 8, "visits": [
+            {"days_ago": 200, "complaint": "Diabetes review", "signed": True, "sources": [
+                {"pdf": "rx_start.pdf", "title": "Prescription", "rows": [
+                    "Diagnosis: Type 2 diabetes mellitus", "1. Tab Glycomet 500 BD", "2. Tab Telma 40 OD"],
+                 "facts": [diagnosis("Type 2 diabetes mellitus"), med("Glycomet", "Glycomet", "Glycomet 500 BD"),
+                           med("Telma", "Telma", "Telma 40 OD")]}]},
+            {"days_ago": 95, "complaint": "Diabetes review", "signed": True, "sources": [
+                {"pdf": "labs.pdf", "title": "Laboratory Report",
+                 "rows": lab_rows(("HbA1c", "7.4", "%", "4.0 - 5.6"), ("Creatinine, serum", "1.0", "mg/dL", "0.7 - 1.3"),
+                                  ("Fasting glucose", "138", "mg/dL", "70 - 100")),
+                 "facts": [lab("HbA1c", 7.4, "%"), lab("Creatinine, serum", 1.0, "mg/dL"), lab("Fasting glucose", 138, "mg/dL")]},
+                {"transcript": "visit.txt", "lines": [
+                    "[00:40-00:46] Doctor: Sugar control is fair. Repeat HbA1c in 4 months."],
+                 "facts": [plan("Repeat HbA1c in 4 months")]}]},
+            {"days_ago": 0, "complaint": "Routine follow-up", "signed": False, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    f"[00:06-00:10] {bp_8}",
+                    "[00:14-00:16] Doctor: Any allergies?",
+                    "[00:17-00:18] Patient: No allergies.",
+                    "[00:30-00:38] Doctor: Continue Glycomet 500 twice daily and Telma 40 once daily."],
+                 "facts": [*bp_8_facts, no_allergies, med("Continue Glycomet", "Glycomet", "Glycomet 500 twice daily"),
+                           med("Continue Glycomet", "Telma", "Telma 40 once daily")]}]}]},
+
+        {"key": "B9_sulfa_allergy_conflict", "patient": 9, "visits": [
+            {"days_ago": 400, "complaint": "Hospital discharge", "signed": True, "sources": [
+                {"pdf": "discharge.pdf", "title": "Discharge Summary", "rows": [
+                    "Diagnosis: Essential hypertension", "Allergy: Sulfa (rash)", "1. Tab Telma 40 OD"],
+                 "facts": [diagnosis("Essential hypertension"),
+                           {"find": "Allergy:", "fact_type": "allergy", "name": "Sulfa", "raw_text": "Allergy: Sulfa (rash)"},
+                           med("Telma", "Telma", "Telma 40 OD")]}]},
+            {"days_ago": 0, "complaint": "Burning urination", "signed": False, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    "[00:05-00:11] Patient: I have burning when I pass urine since two days.",
+                    "[00:24-00:30] Doctor: I will prescribe Septran twice daily for five days."],
+                 "facts": [symptom("burning when I pass urine", "burning urination"),
+                           med("prescribe Septran", "Septran", "Septran twice daily")]}]}]},
+
+        {"key": "B10_sprain", "patient": 10, "visits": [
+            {"days_ago": 0, "complaint": "Ankle sprain", "signed": False, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    "[00:04-00:10] Patient: I twisted my ankle while playing football yesterday.",
+                    "[00:12-00:14] Doctor: Any allergies?",
+                    "[00:15-00:16] Patient: No allergies.",
+                    "[00:26-00:33] Doctor: Take Brufen 400 three times daily after food for three days.",
+                    "[00:34-00:38] Doctor: Review in 1 week if the swelling continues."],
+                 "facts": [symptom("twisted my ankle", "twisted ankle"), no_allergies,
+                           med("Brufen", "Brufen", "Brufen 400 three times daily"), plan("Review in 1 week")]}]}]},
+
+        {"key": "B11_metformin_dose", "patient": 11, "visits": [
+            {"days_ago": 150, "complaint": "Diabetes review", "signed": True, "sources": [
+                {"pdf": "rx_start.pdf", "title": "Prescription", "rows": [
+                    "Diagnosis: Type 2 diabetes mellitus", "1. Tab Amaryl 1 OD"],
+                 "facts": [diagnosis("Type 2 diabetes mellitus"), med("Amaryl", "Amaryl", "Amaryl 1 OD")]},
+                {"pdf": "hba1c.pdf", "title": "Laboratory Report", "rows": lab_rows(("HbA1c", "8.8", "%", "4.0 - 5.6")),
+                 "facts": [lab("HbA1c", 8.8, "%")]}]},
+            {"days_ago": 0, "complaint": "Diabetes review", "signed": False, "sources": [
+                {"pdf": "labs_recent.pdf", "title": "Laboratory Report", "days_ago": 2,
+                 "rows": lab_rows(("HbA1c", "9.4", "%", "4.0 - 5.6"), ("Creatinine, serum", "0.9", "mg/dL", "0.6 - 1.1")),
+                 "facts": [lab("HbA1c", 9.4, "%"), lab("Creatinine, serum", 0.9, "mg/dL")]},
+                {"pdf": "rx_outside_clinic.pdf", "title": "Prescription", "rows": ["1. Tab Glycomet 1000 TDS"],
+                 "facts": [med("Glycomet", "Glycomet", "Glycomet 1000 TDS")]}]}]},
+
+        {"key": "B12_anticoagulation", "patient": 12, "visits": [
+            {"days_ago": 300, "complaint": "Cardiology review", "signed": True, "sources": [
+                {"pdf": "rx_cardiology.pdf", "title": "Prescription", "rows": [
+                    "Diagnosis: Atrial fibrillation", "1. Tab Warf 5 OD", "2. Tab Telma 40 OD"],
+                 "facts": [diagnosis("Atrial fibrillation"), med("Warf", "Warf", "Warf 5 OD"), med("Telma", "Telma", "Telma 40 OD")]}]},
+            {"days_ago": 0, "complaint": "Routine follow-up", "signed": False, "sources": [
+                {"pdf": "labs_recent.pdf", "title": "Laboratory Report", "days_ago": 3,
+                 "rows": lab_rows(("Hemoglobin", "13.4", "g/dL", "12 - 16"), ("Potassium", "4.4", "mmol/L", "3.5 - 5.1"),
+                                  ("Creatinine, serum", "1.1", "mg/dL", "0.7 - 1.3")),
+                 "facts": [lab("Hemoglobin", 13.4, "g/dL"), lab("Potassium", 4.4, "mmol/L"), lab("Creatinine, serum", 1.1, "mg/dL")]},
+                {"transcript": "visit.txt", "lines": [
+                    f"[00:05-00:09] {bp_12}",
+                    "[00:20-00:25] Doctor: Continue Warf 5 once daily."],
+                 "facts": [*bp_12_facts, med("Continue Warf", "Warf", "Warf 5 once daily")]}]}]},
+
+        {"key": "B13_anaemia_overdue", "patient": 13, "visits": [
+            {"days_ago": 70, "complaint": "Tiredness", "signed": True, "sources": [
+                {"pdf": "blood_count.pdf", "title": "Laboratory Report", "rows": lab_rows(("Hemoglobin", "9.8", "g/dL", "12 - 16")),
+                 "facts": [lab("Hemoglobin", 9.8, "g/dL")]},
+                {"transcript": "visit.txt", "lines": [
+                    "[00:04-00:09] Patient: I feel tired all the time for the past month.",
+                    "[00:30-00:35] Doctor: Repeat the blood count in 1 month."],
+                 "facts": [symptom("feel tired all the time", "tiredness"), plan("Repeat the blood count in 1 month")]}]},
+            {"days_ago": 0, "complaint": "Follow-up", "signed": False, "sources": []}]},
+
+        {"key": "B14_osteoarthritis", "patient": 14, "visits": [
+            {"days_ago": 240, "complaint": "Blood pressure review", "signed": True, "sources": [
+                {"pdf": "rx_old.pdf", "title": "Prescription", "rows": ["Diagnosis: Essential hypertension", "1. Tab Telma 40 OD"],
+                 "facts": [diagnosis("Essential hypertension"), med("Telma", "Telma", "Telma 40 OD")]}]},
+            {"days_ago": 0, "complaint": "Knee pain", "signed": False, "sources": [
+                {"pdf": "rx_today.pdf", "title": "Prescription", "rows": [
+                    "Diagnosis: Osteoarthritis", "1. Tab Dolo 650 TDS", "2. Tab Pantocid 40 OD"],
+                 "facts": [diagnosis("Osteoarthritis"), med("Dolo", "Dolo", "Dolo 650 TDS"), med("Pantocid", "Pantocid", "Pantocid 40 OD")]},
+                {"transcript": "visit.txt", "lines": [
+                    f"[00:05-00:09] {bp_14}",
+                    "[00:12-00:14] Doctor: Any allergies?",
+                    "[00:15-00:16] Patient: No allergies."],
+                 "facts": [*bp_14_facts, no_allergies]}]}]},
+
+        {"key": "B15_fever", "patient": 15, "visits": [
+            {"days_ago": 0, "complaint": "Fever", "signed": False, "sources": [
+                {"transcript": "visit.txt", "lines": [
+                    "[00:04-00:09] Patient: I have had a fever and body ache since yesterday.",
+                    "[00:12-00:14] Doctor: Any allergies?",
+                    "[00:15-00:16] Patient: No allergies.",
+                    "[00:26-00:33] Doctor: Take Crocin 650 three times daily for three days.",
+                    "[00:34-00:38] Doctor: Review in 3 days if the fever continues."],
+                 "facts": [symptom("fever and body ache", "fever"), no_allergies,
+                           med("Crocin", "Crocin", "Crocin 650 three times daily"), plan("Review in 3 days")]}]}]},
     ]
 
 
@@ -221,8 +381,8 @@ def _doctor(cur) -> dict:
 
 
 def wipe_demo(cur) -> None:
-    """Remove all clinical data of the six demo patients (the audit log is append-only and stays)."""
-    ids = [PATIENT.format(n) for n in range(1, 7)]
+    """Remove all clinical data of the demo patients (the audit log is append-only and stays)."""
+    ids = [PATIENT.format(n) for n in DEMO_PATIENTS]
     cur.execute("select id from encounters where patient_id = any(%s::uuid[])", (ids,))
     encounters = [r["id"] for r in cur.fetchall()]
     cur.execute("delete from safety_alerts where patient_id = any(%s::uuid[])", (ids,))
@@ -270,18 +430,19 @@ def seed_demo(reseed: bool = False, s1_labs_preloaded: bool = False, log=print) 
     today = date.today()
     with tx() as cur:
         doctor = _doctor(cur)
-        cur.execute("select count(*) as n from encounters where patient_id = any(%s::uuid[])",
-                    ([PATIENT.format(n) for n in range(1, 7)],))
-        existing = cur.fetchone()["n"]
-        if existing and not reseed:
-            log(f"Demo data already present ({existing} encounters) - skipping. Use --reseed-demo to rebuild it.")
-            return
-        if existing:
+        cur.execute("select distinct patient_id::text as id from encounters where patient_id = any(%s::uuid[])",
+                    ([PATIENT.format(n) for n in DEMO_PATIENTS],))
+        seeded = {row["id"] for row in cur.fetchall()}
+        if seeded and reseed:
             wipe_demo(cur)
+            seeded = set()
             log("Removed previous demo clinical data.")
 
     for scenario in scenarios(today, s1_labs_preloaded):
         patient_id = PATIENT.format(scenario["patient"])
+        if patient_id in seeded:  # only charts that have no visits yet are built; --reseed-demo rebuilds all
+            log(f"  {scenario['key']}: already present - skipped")
+            continue
         with tx() as cur:
             cur.execute("select full_name, mrn from patients where id = %s", (patient_id,))
             patient = cur.fetchone()
