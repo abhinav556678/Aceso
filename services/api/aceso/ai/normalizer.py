@@ -22,7 +22,16 @@ LOINC_DB = {
 
 SNOMED_DB = {
     "Hypertension": "38341003",
-    "Diabetes Type 2": "44054006"
+    "raththam kothippu": "38341003", # Tamil colloquial
+    "Diabetes Type 2": "44054006",
+    "sakkara vyadhi": "44054006", # Tamil colloquial
+    "sugar complaint": "44054006",
+    "Pain": "22253000",
+    "vali": "22253000", # Tamil colloquial
+    "Fever": "386661006",
+    "kaichal": "386661006", # Tamil colloquial
+    "Cough": "49727002",
+    "irumal": "49727002" # Tamil colloquial
 }
 
 def normalize_term(term: str, fact_type: str) -> dict:
@@ -38,7 +47,7 @@ def normalize_term(term: str, fact_type: str) -> dict:
     elif fact_type == "lab_result":
         db = LOINC_DB
         system = "LOINC"
-    elif fact_type == "condition":
+    elif fact_type == "condition" or fact_type == "symptom":
         db = SNOMED_DB
         system = "SNOMED-CT"
         

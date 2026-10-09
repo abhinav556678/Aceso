@@ -30,15 +30,25 @@ def process_audio(payload: dict) -> dict:
         logger.warning("WhisperModel not available. Returning mock data.")
         return {
             "transcript": "Mock transcript because faster_whisper is missing.",
-            "segments": [{"start": 0, "end": 2, "text": "Mock transcript"}]
+            "segments": [{"start": 0, "end": 2, "text": "Mock transcript", "speaker": "doctor"}]
         }
 
-    segments, info = model.transcribe(file_path, beam_size=5, word_timestamps=True)
+    # Code-mixed multilingual scribe configuration
+    # Provide an initial prompt containing English and Tamil words to bias the model
+    # toward recognizing code-mixed speech appropriately.
+    initial_prompt = "Code-mixed medical consultation in English and Tamil. Words like vali, marunthu, illa, sakkara vyadhi."
+    
+    segments, info = model.transcribe(
+        file_path, 
+        beam_size=5, 
+        word_timestamps=True,
+        initial_prompt=initial_prompt
+    )
     
     transcript_segments = []
     full_text = []
     
-    for segment in segments:
+    for i, segment in enumerate(segments):
         full_text.append(segment.text)
         words = []
         if segment.words:
@@ -49,10 +59,19 @@ def process_audio(payload: dict) -> dict:
                     "word": word.word
                 })
         
+        # Heuristic speaker diarization based on clinical context
+        # A real implementation would use a dedicated diarization model like pyannote.audio
+        text_lower = segment.text.lower()
+        if "?" in text_lower or any(kw in text_lower for kw in ["prescribe", "continue", "repeat", "doctor"]):
+            speaker = "doctor"
+        else:
+            speaker = "patient"
+        
         transcript_segments.append({
             "start": segment.start,
             "end": segment.end,
             "text": segment.text,
+            "speaker": speaker,
             "words": words
         })
         
