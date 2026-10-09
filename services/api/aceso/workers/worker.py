@@ -70,6 +70,45 @@ def process_job(conn, job: dict):
             result = process_document(job['payload'])
             text_content = result.get('text', '')
             source_type = "document"
+        elif job['type'] == 'generate_soap':
+            from aceso.ai.soap import generate_soap_note
+            patient_id = job['payload'].get('patient_id')
+            encounter_id = job['payload'].get('encounter_id')
+            
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, fact_type, display, value_num, unit, assertion, state
+                    FROM facts
+                    WHERE patient_id = %s AND encounter_id = %s AND state = 'verified'
+                """, (patient_id, encounter_id))
+                facts = []
+                for row in cur.fetchall():
+                    facts.append({
+                        'id': row[0], 'fact_type': row[1], 'display': row[2], 
+                        'value_num': row[3], 'unit': row[4], 'assertion': row[5], 'state': row[6]
+                    })
+            
+            soap_note = generate_soap_note(facts)
+            result = {"soap_note": soap_note}
+            
+            import json
+            with conn.cursor() as cur:
+                # Upsert soap note
+                cur.execute("""
+                    INSERT INTO soap_notes (encounter_id, subjective, objective, assessment, plan, status, generated_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (encounter_id, version) DO UPDATE SET
+                    subjective = EXCLUDED.subjective, objective = EXCLUDED.objective,
+                    assessment = EXCLUDED.assessment, plan = EXCLUDED.plan
+                """, (
+                    encounter_id, json.dumps(soap_note['subjective']), json.dumps(soap_note['objective']), 
+                    json.dumps(soap_note['assessment']), json.dumps(soap_note['plan']), 
+                    'draft', 'system'
+                ))
+            
+            complete_job(conn, job['id'], result)
+            logger.info(f"Completed job {job['id']} for SOAP generation.")
+            return
         else:
             raise ValueError(f"Unknown job type: {job['type']}")
             
