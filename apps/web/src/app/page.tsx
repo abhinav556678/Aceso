@@ -32,7 +32,7 @@ export default function SignIn() {
     }
   }
 
-  const field = 'w-full border border-slate-300 bg-white px-3 py-2.5 mt-1.5'
+  const field = 'field mt-1.5'
   return (
     <main className="min-h-screen grid lg:grid-cols-[5fr_6fr]">
       <section className="hidden lg:flex flex-col justify-between bg-slate-900 text-white p-12">
@@ -63,9 +63,9 @@ export default function SignIn() {
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required className={field} />
           </label>
 
-          {error && <p role="alert" className="mt-5 border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">{error}</p>}
+          {error && <p role="alert" className="mt-5 text-sm" style={{ color: 'var(--sev-critical)' }}>{error}</p>}
 
-          <button disabled={busy} className="mt-6 w-full bg-blue-600 text-white font-medium py-2.5 hover:bg-blue-700 disabled:opacity-50">
+          <button disabled={busy} className="btn btn-primary mt-6 w-full py-2.5">
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
           <p className="text-xs text-slate-500 mt-8">Accounts: doctor, nurse and admin. Each sees only what its role allows.</p>

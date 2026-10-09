@@ -27,9 +27,9 @@ export default function AuditLog() {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-2xl font-semibold mb-6">Audit log</h1>
 
-        {error && <p role="alert" className="mb-4 border border-red-300 bg-red-50 text-red-800 p-3">{error}</p>}
+        {error && <p role="alert" className="card border-l-4 mb-4 px-4 py-3" style={{ borderLeftColor: 'var(--sev-critical)' }}>{error}</p>}
         {status && (
-          <p className="mb-4 bg-white border border-slate-200 p-3 text-sm">
+          <p className="card mb-6 px-6 py-4 text-sm text-slate-700">
             Model layer: <b>{status.llm_mode === 'onprem' ? 'on-premises' : 'external API'}</b> · extraction {status.llm}
             {status.stt && <> · speech-to-text {status.stt}</>}. Text is redacted before it leaves; each call is logged below as <code>llm.call</code> with
             the SHA-256 of what was sent, and the row opens the message itself. Audio is sent for transcription as recorded.
@@ -40,21 +40,21 @@ export default function AuditLog() {
 
         <div className="flex flex-wrap gap-3 items-center mb-4">
           <button onClick={() => post('/admin/audit/verify').then(setChain).catch(e => setError(e.message))}
-            className="bg-slate-800 text-white px-4 py-2 text-sm font-medium">Verify hash chain</button>
+            className="btn btn-primary">Verify hash chain</button>
           {chain && (chain.ok
-            ? <span className="text-green-800 font-semibold">✓ Chain intact — no row has been altered or removed</span>
-            : <span className="text-red-700 font-semibold">✕ Chain broken at row {chain.broken_at}</span>)}
+            ? <span className="text-sm" style={{ color: 'var(--state-confirmed)' }}>✓ Chain intact. No row has been altered or removed.</span>
+            : <span className="text-sm" style={{ color: 'var(--sev-critical)' }}>✕ Chain broken at row {chain.broken_at}</span>)}
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter by action, actor or MRN"
-            aria-label="Filter audit rows" className="ml-auto border border-slate-300 px-3 py-2 text-sm bg-white w-64" />
+            aria-label="Filter audit rows" className="field ml-auto text-sm" style={{ width: '16rem' }} />
         </div>
 
         {!data && !error && <p className="text-slate-500">Loading…</p>}
         {data && (
           <>
             <p className="text-sm text-slate-500 mb-2">Showing {rows.length} of {data.total} rows, newest first. The table is append-only at the database level.</p>
-            <div className="bg-white border border-slate-200 overflow-x-auto">
+            <div className="card overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="bg-slate-100 text-slate-700">
+                <thead className="label border-b border-slate-200" style={{ background: 'var(--bg)' }}>
                   <tr><th className="p-2">#</th><th className="p-2">Time</th><th className="p-2">Actor</th><th className="p-2">Action</th><th className="p-2">Patient</th><th className="p-2">Change</th><th className="p-2">Details</th></tr>
                 </thead>
                 <tbody>
@@ -69,7 +69,7 @@ export default function AuditLog() {
                       <td className="p-2 text-slate-600 font-mono text-xs break-all">
                         {JSON.stringify(row.payload)}
                         {row.action === 'llm.call' && row.payload?.sent_sha256 && (
-                          <button onClick={() => setReceiptJob(row.entity_id)} className="block font-sans text-sm text-blue-700 hover:underline mt-1">See what was sent →</button>
+                          <button onClick={() => setReceiptJob(row.entity_id)} className="link block font-sans text-sm mt-1">See what was sent</button>
                         )}
                       </td>
                     </tr>

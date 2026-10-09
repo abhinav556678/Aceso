@@ -67,22 +67,25 @@ export default function ConsultRecorder({ disabled, onRecorded }: { disabled: bo
 
   if (!recording) {
     return (
-      <div className="flex-1 min-w-40">
-        <button onClick={start} disabled={disabled}
-          className="w-full border border-red-700 text-red-700 bg-white font-medium py-2 px-4 text-sm hover:bg-red-50 disabled:opacity-40">
-          ● Record consult
+      <div>
+        <button onClick={start} disabled={disabled} className="btn">
+          <span style={{ color: 'var(--sev-critical)' }} aria-hidden>●</span> Record consult
         </button>
-        {error && <p role="alert" className="text-sm text-red-700 mt-1">{error}</p>}
+        {error && <p role="alert" className="text-sm mt-1 max-w-xs" style={{ color: 'var(--sev-critical)' }}>{error}</p>}
       </div>
     )
   }
   return (
-    <div className="basis-full flex flex-wrap items-center gap-2 border border-red-700 bg-red-50 px-3 py-2 text-sm" role="status">
-      <span className="font-semibold text-red-700 animate-pulse">● Recording</span>
-      <span className="font-mono mr-auto">{fmtClock(elapsed)}</span>
-      <button onClick={() => finish(true)} className="bg-red-700 text-white font-medium px-3 py-1 hover:bg-red-800">■ Stop &amp; transcribe</button>
-      <button onClick={() => finish(false)} className="border border-slate-400 bg-white px-3 py-1 hover:bg-slate-100">Discard</button>
-      <p className="basis-full text-xs text-slate-600">Audio is sent for transcription as recorded; only its transcript is redacted.</p>
+    <div role="status">
+      <div className="flex items-center gap-2">
+        <span className="btn cursor-default hover:bg-white" style={{ borderColor: 'var(--sev-critical)' }}>
+          <span className="animate-pulse" style={{ color: 'var(--sev-critical)' }} aria-hidden>●</span>
+          Recording <span className="font-mono">{fmtClock(elapsed)}</span>
+        </span>
+        <button onClick={() => finish(true)} className="btn btn-primary">Stop &amp; transcribe</button>
+        <button onClick={() => finish(false)} className="btn">Discard</button>
+      </div>
+      <p className="text-xs text-slate-500 mt-1.5">Audio is sent for transcription as recorded; only its transcript is redacted.</p>
     </div>
   )
 }

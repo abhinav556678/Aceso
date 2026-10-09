@@ -14,7 +14,7 @@ export default function SourceViewer({ fact, onSelectFact }: { fact: any | null;
   }
   return (
     <div className="w-full">
-      <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Source of “{fact.display}”</h3>
+      <p className="text-sm text-slate-600 mb-3">Where “{fact.display}” comes from</p>
       {fact.source === 'document' && <DocumentSource fact={fact} />}
       {fact.source === 'audio' && <AudioSource key={fact.recording_id} fact={fact} />}
       {fact.source === 'manual' && <DerivedSource fact={fact} onSelectFact={onSelectFact} />}
@@ -25,8 +25,8 @@ export default function SourceViewer({ fact, onSelectFact }: { fact: any | null;
 function DocumentSource({ fact }: { fact: any }) {
   const box = fact.bbox
   return (
-    <figure className="bg-white border border-slate-200 overflow-hidden">
-      <figcaption className="bg-slate-800 text-white px-3 py-2 text-sm flex justify-between">
+    <figure className="card overflow-hidden">
+      <figcaption className="bg-slate-900 text-white px-4 py-2.5 text-sm flex justify-between">
         <span>{fact.document_name || 'Document'} · page {fact.page_no}</span>
         <span className="opacity-75">{fmtDate(fact.effective_at)}</span>
       </figcaption>
@@ -65,14 +65,14 @@ export function ScanReview({ documentId, onClose }: { documentId: string; onClos
   const unreadable = (block: any) => block.confidence < limits.unreadable_below
 
   return (
-    <figure className="bg-white border border-slate-200 overflow-hidden mb-5">
-      <figcaption className="bg-slate-800 text-white px-3 py-2 text-sm flex justify-between">
+    <figure className="card overflow-hidden mb-5">
+      <figcaption className="bg-slate-900 text-white px-4 py-2.5 text-sm flex justify-between">
         <span>Scan check · {doc?.original_name || 'document'}</span>
         <button onClick={onClose} aria-label="Close scan check" className="opacity-75 hover:opacity-100">×</button>
       </figcaption>
       {error && !doc && (
         <p className="p-3 text-red-700 text-sm">
-          {error} <button onClick={() => setAttempt(n => n + 1)} className="ml-2 text-blue-700 hover:underline">Try again</button>
+          {error} <button onClick={() => setAttempt(n => n + 1)} className="link ml-2">Try again</button>
         </p>
       )}
       {!doc && !error && <p className="p-3 text-slate-500 text-sm">Loading…</p>}
@@ -136,8 +136,8 @@ function AudioSource({ fact }: { fact: any }) {
   }
 
   return (
-    <div className="bg-white border border-slate-200 overflow-hidden">
-      <div className="bg-slate-800 text-white px-3 py-2 text-sm flex justify-between">
+    <div className="card overflow-hidden">
+      <div className="bg-slate-900 text-white px-4 py-2.5 text-sm flex justify-between">
         <span>{recording?.original_name || 'Consult recording'}</span>
         <span>{fmtClock(fact.audio_start_ms)}–{fmtClock(fact.audio_end_ms)}</span>
       </div>
@@ -145,7 +145,7 @@ function AudioSource({ fact }: { fact: any }) {
       {recording?.has_audio && (
         <div className="p-3 border-b border-slate-200 flex items-center gap-3">
           <audio ref={audio} controls preload="metadata" onLoadedMetadata={findLength} src={fileUrl(`/recordings/${fact.recording_id}/audio`)} className="flex-1 h-9" />
-          <button onClick={play} className="text-sm bg-blue-600 text-white px-3 py-1.5 hover:bg-blue-700">Play span</button>
+          <button onClick={play} className="btn btn-sm">Play span</button>
         </div>
       )}
       {recording && !recording.has_audio && (
@@ -154,12 +154,12 @@ function AudioSource({ fact }: { fact: any }) {
       <ol className="p-3 space-y-1 max-h-[28rem] overflow-y-auto text-sm">
         {!recording && !error && <li className="text-slate-500">Loading transcript…</li>}
         {recording?.segments.map((segment: any) => (
-          <li key={segment.id} className={`flex gap-3 px-2 py-1.5 ${cited.has(segment.id) ? 'bg-yellow-100 border-l-4 border-yellow-500 font-medium' : ''}`}>
+          <li key={segment.id} className={`flex gap-3 px-2 py-1.5 ${cited.has(segment.id) ? 'border-l-4 border-slate-900 font-medium' : ''}`} style={cited.has(segment.id) ? { background: 'var(--highlight)' } : undefined}>
             <span className="font-mono text-xs text-slate-500 pt-0.5 shrink-0">{fmtClock(segment.start_ms)}</span>
             <span>
               {segment.speaker !== 'unknown' && <span className="text-slate-500 capitalize">{segment.speaker}: </span>}
               {segment.text}
-              {cited.has(segment.id) && <span className="ml-2 text-xs text-yellow-800">cited</span>}
+              {cited.has(segment.id) && <span className="ml-2 label">cited</span>}
             </span>
           </li>
         ))}
@@ -171,10 +171,10 @@ function AudioSource({ fact }: { fact: any }) {
 function DerivedSource({ fact, onSelectFact }: { fact: any; onSelectFact: (id: string) => void }) {
   const inputs = fact.dose?.inputs
   if (!fact.dose?.formula) {
-    return <p className="bg-white border border-slate-200 p-4 text-sm text-slate-600">Entered manually by {fact.created_by}.</p>
+    return <p className="card p-4 text-sm text-slate-600">Entered manually by {fact.created_by}.</p>
   }
   return (
-    <div className="bg-white border border-slate-200 p-4 text-sm">
+    <div className="card p-4 text-sm">
       <p className="font-semibold mb-2">Computed by deterministic code, not by a model</p>
       <dl className="grid grid-cols-2 gap-y-1">
         <dt className="text-slate-500">Formula</dt><dd className="font-mono">{fact.dose.formula}</dd>
@@ -184,7 +184,7 @@ function DerivedSource({ fact, onSelectFact }: { fact: any; onSelectFact: (id: s
         <dt className="text-slate-500">Result</dt><dd className="font-mono font-semibold">{fact.value_num} {fact.unit}</dd>
       </dl>
       {fact.dose.input_fact && (
-        <button onClick={() => onSelectFact(fact.dose.input_fact)} className="mt-3 text-blue-700 hover:underline">
+        <button onClick={() => onSelectFact(fact.dose.input_fact)} className="link mt-3">
           View the source of the input value →
         </button>
       )}

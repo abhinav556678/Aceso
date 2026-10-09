@@ -1,22 +1,31 @@
 @import "tailwindcss";
 
+/*
+  One theme for the whole app.
+  - Neutral surfaces: grey page, white cards with a hairline border, dark chrome (top bar, sign-in panel).
+  - One action colour: ink. A primary button is dark; every other button is white with a border.
+  - Colour carries meaning only: red for safety alerts, amber for "needs review", green for done.
+  - Square corners, no shadows, no gradients.
+*/
 :root {
-  /* fact lifecycle */
-  --state-extracted: #b45309;
-  --state-verified: #1d4ed8;
-  --state-confirmed: #15803d;
-  --state-rejected: #6b7280;
+  /* surfaces and text */
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --border: #e2e5ea;
+  --border-strong: #c3c9d2;
+  --highlight: #fdf3c7;   /* the sentence or line a source points at */
+  /* fact lifecycle (text only, never a fill) */
+  --state-extracted: #a8530a;
+  --state-verified: #475569;
+  --state-confirmed: #166534;
+  --state-rejected: #94a3b8;
   /* alert severity */
   --sev-critical: #b91c1c;
   --sev-high: #c2410c;
   --sev-moderate: #a16207;
   --sev-info: #475569;
-  /* surfaces */
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --ink: #0f172a;
-  --muted: #64748b;
-  --border: #e2e8f0;
 }
 
 @theme inline {
@@ -29,12 +38,61 @@ body {
   color: var(--ink);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   font-size: 15px;
+  line-height: 1.5;
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  /* small capitals above a block: section names, field names */
+  .label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.95rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    white-space: nowrap;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    cursor: pointer;
+  }
+  .btn:hover { background: #eef0f3; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { color: #fff; background: var(--ink); border-color: var(--ink); }
+  .btn-primary:hover { background: #1e293b; }
+  .btn-sm { padding: 0.3rem 0.7rem; }
+
+  .field {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+  }
+
+  .link { color: #1d4ed8; }
+  .link:hover { text-decoration: underline; }
 }
 
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid #2563eb;
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #1d4ed8;
   outline-offset: 2px;
 }

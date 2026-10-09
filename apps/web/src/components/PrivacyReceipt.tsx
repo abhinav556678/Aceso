@@ -17,7 +17,7 @@ const tally = (counts: Record<string, number> = {}) =>
 /** Text as it left the machine: each placeholder shown as a solid chip. */
 function Sent({ text }: { text: string }) {
   return <>{text.split(/(<[A-Z]+>)/).map((part, index) => /^<[A-Z]+>$/.test(part)
-    ? <span key={index} className="font-mono text-xs bg-slate-800 text-white px-1 py-0.5 mx-0.5">{part}</span>
+    ? <span key={index} className="font-mono text-xs bg-slate-900 text-white px-1 py-0.5 mx-0.5">{part}</span>
     : part)}</>
 }
 
@@ -51,7 +51,7 @@ export default function PrivacyReceipt({ jobId, onClose }: { jobId: string; onCl
       <div className="w-full max-w-4xl bg-white h-full flex flex-col">
         <header className="p-5 border-b border-slate-200 flex justify-between items-start gap-4">
           <div>
-            <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Privacy receipt</p>
+            <p className="label">Privacy receipt</p>
             <h2 className="text-lg font-semibold mt-1">What the model saw{data?.filename ? ` · ${data.filename}` : ''}</h2>
           </div>
           <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-slate-900 text-2xl leading-none">×</button>
@@ -61,14 +61,14 @@ export default function PrivacyReceipt({ jobId, onClose }: { jobId: string; onCl
           {error && <p role="alert" className="border border-red-300 bg-red-50 text-red-800 p-3">{error}</p>}
           {!data && !error && <p className="text-slate-500">Loading…</p>}
           {data?.audio_sent_unredacted && (
-            <p className="bg-amber-50 border border-amber-300 p-3">
+            <p className="card border-l-4 px-4 py-3" style={{ borderLeftColor: 'var(--state-extracted)' }}>
               The audio of this recording was sent to {data.stt_model} for transcription as recorded. Speech cannot be redacted;
               only the transcript below is redacted before fact extraction.
             </p>
           )}
           {data && !data.calls.length && <p className="text-slate-600">No language-model call is recorded for this upload.</p>}
           {data && !data.shows_original && data.calls.length > 0 && (
-            <p className="bg-slate-100 border border-slate-300 p-3">An admin audits what left the machine. The original text is shown to clinical roles only.</p>
+            <p className="card px-4 py-3 text-slate-600">An admin audits what left the machine. The original text is shown to clinical roles only.</p>
           )}
 
           {data?.calls.map((call: any) => (
@@ -87,7 +87,7 @@ export default function PrivacyReceipt({ jobId, onClose }: { jobId: string; onCl
 
               <div className="mt-3 border border-slate-200 overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-100 text-slate-700 text-xs uppercase tracking-wide">
+                  <thead className="label border-b border-slate-200" style={{ background: 'var(--bg)' }}>
                     <tr>
                       <th className="p-2 w-12">Line</th>
                       {data.shows_original && <th className="p-2 w-1/2">Stays on this machine</th>}
@@ -96,7 +96,7 @@ export default function PrivacyReceipt({ jobId, onClose }: { jobId: string; onCl
                   </thead>
                   <tbody>
                     {call.units.map((unit: any) => (
-                      <tr key={unit.unit} className={`border-t border-slate-100 align-top ${unit.sent.includes('<') ? 'bg-yellow-50' : ''}`}>
+                      <tr key={unit.unit} className="border-t border-slate-100 align-top" style={unit.sent.includes('<') ? { background: 'var(--highlight)' } : undefined}>
                         <td className="p-2 font-mono text-xs text-slate-500">{unit.unit}</td>
                         {data.shows_original && <td className="p-2">{unit.original != null ? <Original text={unit.original} spans={unit.spans} /> : <span className="text-slate-400">source removed</span>}</td>}
                         <td className="p-2"><Sent text={unit.sent} /></td>
@@ -128,25 +128,25 @@ export function RedactionTryout() {
   const run = () => post('/privacy/preview', { text, patient_name: name }).then(r => { setResult(r); setError('') }).catch(e => setError(e.message))
 
   return (
-    <section className="mb-6 bg-white border border-slate-200 p-4 text-sm">
+    <section className="card mb-6 px-6 py-5 text-sm">
       <h2 className="font-semibold">Try the redactor</h2>
       <p className="text-slate-600 mb-3">The same code that runs before every model call. Type anything; it is not stored and not sent anywhere.</p>
       <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={5000} aria-label="Text to redact"
-        className="w-full border border-slate-300 px-3 py-2 font-mono text-xs" />
+        className="field font-mono text-xs" />
       <div className="flex flex-wrap gap-3 items-center mt-2">
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Registered patient name (optional)" aria-label="Registered patient name"
-          className="border border-slate-300 px-3 py-2 w-72" />
-        <button onClick={run} className="bg-slate-800 text-white px-4 py-2 font-medium">Show what would be sent</button>
+          className="field" style={{ width: '18rem' }} />
+        <button onClick={run} className="btn btn-primary">Show what would be sent</button>
       </div>
       {error && <p role="alert" className="text-red-700 mt-2">{error}</p>}
       {result && (
         <div className="mt-3 grid md:grid-cols-2 gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Stays on this machine</p>
+            <p className="label mb-1.5">Stays on this machine</p>
             <p className="border border-slate-200 p-3"><Original text={text} spans={result.spans} /></p>
           </div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Would be sent · {tally(result.redacted) || 'nothing'} removed</p>
+            <p className="label mb-1.5">Would be sent · {tally(result.redacted) || 'nothing'} removed</p>
             <p className="border border-slate-200 p-3"><Sent text={result.sent} /></p>
           </div>
         </div>

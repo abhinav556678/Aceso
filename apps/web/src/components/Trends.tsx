@@ -40,10 +40,10 @@ function TrendChart({ series, onSelectFact }: { series: any; onSelectFact: (id: 
   const active = hover != null ? points[hover] : null
 
   return (
-    <section className="bg-white border border-slate-200 p-4">
+    <section className="card px-6 py-5">
       <header className="flex justify-between items-baseline mb-1">
         <h3 className="font-semibold">{series.name} <span className="text-slate-500 font-normal text-sm">({series.unit})</span></h3>
-        <button onClick={() => setTable(!table)} className="text-xs text-blue-700 hover:underline">{table ? 'Show chart' : 'Show table'}</button>
+        <button onClick={() => setTable(!table)} className="link text-xs">{table ? 'Show chart' : 'Show table'}</button>
       </header>
       <p className="text-sm text-slate-700 mb-2">{series.summary}</p>
 
@@ -55,7 +55,7 @@ function TrendChart({ series, onSelectFact }: { series: any; onSelectFact: (id: 
               <tr key={p.fact_id} className="border-t border-slate-100">
                 <td className="py-1">{fmtDate(p.at)}</td><td className="font-mono">{p.value} {series.unit}</td>
                 <td>{outside(p.value) ? 'outside' : 'inside'}</td>
-                <td className="text-right"><button onClick={() => onSelectFact(p.fact_id)} className="text-blue-700 hover:underline">source →</button></td>
+                <td className="text-right"><button onClick={() => onSelectFact(p.fact_id)} className="link">source →</button></td>
               </tr>
             ))}
           </tbody>
