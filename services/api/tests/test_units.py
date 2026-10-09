@@ -130,6 +130,16 @@ def test_redactor_catches_an_unregistered_name_but_not_a_denial():
     assert redactor.redact("Patient: No allergies. Ramipril 5 mg OD") == "Patient: No allergies. Ramipril 5 mg OD"
 
 
+def test_redactor_removes_a_spoken_introduction_and_later_mentions():
+    redactor = Redactor(["Karthik S"])
+    lines = ["Hello doctor, my name is sasmit and I have a fever.", "I am Sasmit Rao. I am diabetic and I'm not allergic.",
+             "Okay Sasmit, continue Glycomet 500."]
+    redactor.learn(lines)
+    assert [redactor.redact(line) for line in lines] == [
+        "Hello doctor, my name is <PERSON> and I have a fever.", "I am <PERSON>. I am diabetic and I'm not allergic.",
+        "Okay <PERSON>, continue Glycomet 500."]
+
+
 def test_ocr_rows_survive_a_tilted_photo_and_flag_unread_ink():
     from aceso.perception import ocr, pdf
     tilt = lambda x, y: [x + 0.06 * y, y - 0.06 * x]   # a page photographed about 3.5 degrees off

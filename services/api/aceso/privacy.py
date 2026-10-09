@@ -32,22 +32,40 @@ PATTERNS = [
                           rf"({_NAME})")),
     ("ADDRESS", re.compile(r"\b(?:address|addr|residence)\s*[:\-]\s*([^\n]{4,120})", re.I)),
 ]
+# Someone saying who they are. "My name is ..." is taken in any spelling; "I am ..." only when
+# the next word is capitalised, because "I am diabetic" must stay readable.
+INTRODUCTIONS = [
+    re.compile(rf"(?i:\bmy name is|\bmy name's)\s+({_NAME}|[A-Za-z][A-Za-z'-]+)"),
+    re.compile(rf"(?:\b[Ii] am|\b[Ii]['’]m|\b[Mm]yself|\b[Cc]all me)\s+"
+               rf"(?!(?:Not|No|Fine|Okay|OK|Sorry|Here|Diabetic|Allergic|Pregnant|Taking|Having|Feeling|Type|On)\b)"
+               rf"({_NAME})"),
+]
+PATTERNS += [("PERSON", pattern) for pattern in INTRODUCTIONS]
 
 
 class Redactor:
     """Replaces known patient names and identifier patterns with placeholders."""
 
     def __init__(self, names: Iterable[str] = ()):
-        parts = set()
-        for name in names:
-            tokens = re.split(r"\s+", (name or "").strip())
-            if not tokens[0]:
-                continue
-            # OCR sometimes drops the space inside a name ("MeenaRajan"), so whitespace is optional
-            parts.add(r"\s*".join(re.escape(t) for t in tokens))
-            parts.update(re.escape(t) for t in tokens if len(t) >= 3)
-        self._names = [re.compile(rf"(?<![A-Za-z]){p}(?![A-Za-z])", re.I) for p in parts]
+        self._names: list[re.Pattern] = []
         self.counts: Counter = Counter()
+        for name in names:
+            self.add_name(name)
+
+    def add_name(self, name: str) -> None:
+        tokens = re.split(r"\s+", (name or "").strip())
+        if not tokens[0]:
+            return
+        # OCR sometimes drops the space inside a name ("MeenaRajan"), so whitespace is optional
+        parts = {r"\s*".join(re.escape(t) for t in tokens), *(re.escape(t) for t in tokens if len(t) >= 3)}
+        self._names += [re.compile(rf"(?<![A-Za-z]){p}(?![A-Za-z])", re.I) for p in parts]
+
+    def learn(self, texts: Iterable[str]) -> None:
+        """Pick up names people introduce themselves with, so later mentions are removed too."""
+        for text in texts:
+            for pattern in INTRODUCTIONS:
+                for match in pattern.finditer(text):
+                    self.add_name(match.group(1))
 
     @property
     def count(self) -> int:

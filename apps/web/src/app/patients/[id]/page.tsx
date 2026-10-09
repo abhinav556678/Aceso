@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import AlertDrawer, { SEVERITY } from '../../../components/AlertDrawer'
+import ConsultRecorder from '../../../components/ConsultRecorder'
 import PrivacyReceipt from '../../../components/PrivacyReceipt'
 import SourceViewer, { ScanReview } from '../../../components/SourceViewer'
 import Trends from '../../../components/Trends'
@@ -235,11 +236,15 @@ function PatientChart() {
           {/* facts */}
           <section className="border-r border-slate-200 p-5 space-y-5 overflow-y-auto">
             <div>
-              <label className={`inline-block bg-blue-600 text-white font-medium py-2 px-4 text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
-                Upload PDF, scan or photo, audio or transcript
-                <input type="file" className="hidden" accept=".pdf,.txt,image/*,audio/*" disabled={signed}
-                  onChange={e => { upload(e.target.files?.[0]); e.target.value = '' }} />
-              </label>
+              <div className="flex flex-wrap items-start gap-2">
+                <label className={`inline-block bg-blue-600 text-white font-medium py-2 px-4 text-sm ${signed ? 'opacity-40' : 'cursor-pointer hover:bg-blue-700'}`}>
+                  Upload PDF, scan or photo, audio or transcript
+                  <input type="file" className="hidden" accept=".pdf,.txt,image/*,audio/*" disabled={signed}
+                    onChange={e => { upload(e.target.files?.[0]); e.target.value = '' }} />
+                </label>
+                <ConsultRecorder disabled={signed} onRecorded={upload} />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">A recording is sent to the transcription service as recorded; only its transcript is redacted.</p>
               <ul className="mt-2 space-y-1">
                 {chart.jobs.map((job: any) => (
                   <li key={job.id} className="text-sm border border-slate-200 bg-white px-3 py-2">

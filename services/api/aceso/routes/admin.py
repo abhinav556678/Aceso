@@ -39,6 +39,7 @@ class RedactionPreview(BaseModel):
 def redaction_preview(body: RedactionPreview, user: dict = Depends(any_role)):
     """Run the same redactor the pipeline uses on any text. Nothing is stored or sent anywhere."""
     redactor = Redactor([body.patient_name])
+    redactor.learn([body.text])
     sent, spans = redactor.apply(body.text)
     return {"sent": sent, "spans": spans, "redacted": dict(redactor.counts)}
 

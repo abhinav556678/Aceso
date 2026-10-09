@@ -172,6 +172,7 @@ def _extract_and_store(job: dict, units: list[dict], source: str, source_id, eff
         patient = cur.fetchone()
 
     redactor = Redactor([patient["full_name"]])
+    redactor.learn(unit["text"] for unit in units)
     for unit in units:
         unit["sent"], unit["redactions"] = redactor.apply(unit["text"])
     _stage(job["id"], f"Redacted {redactor.count} identifier{'' if redactor.count == 1 else 's'} · extracting facts")

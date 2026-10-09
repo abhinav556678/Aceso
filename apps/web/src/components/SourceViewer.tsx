@@ -112,6 +112,15 @@ function AudioSource({ fact }: { fact: any }) {
     api(`/recordings/${fact.recording_id}`).then(setRecording).catch(e => setError(e.message))
   }, [fact.recording_id])
 
+  // A browser recording carries no length, so the player cannot seek in it until it has
+  // been made to find the end once: jump far past it, then come back.
+  const findLength = () => {
+    const player = audio.current
+    if (!player || player.duration !== Infinity) return
+    player.ontimeupdate = () => { player.ontimeupdate = null; player.currentTime = 0 }
+    player.currentTime = 1e9
+  }
+
   const cited = new Set<string>(fact.segment_ids || [])
   const play = () => {
     if (!audio.current) return
@@ -128,7 +137,7 @@ function AudioSource({ fact }: { fact: any }) {
       {error && <p className="p-3 text-red-700 text-sm">{error}</p>}
       {recording?.has_audio && (
         <div className="p-3 border-b border-slate-200 flex items-center gap-3">
-          <audio ref={audio} controls preload="metadata" src={fileUrl(`/recordings/${fact.recording_id}/audio`)} className="flex-1 h-9" />
+          <audio ref={audio} controls preload="metadata" onLoadedMetadata={findLength} src={fileUrl(`/recordings/${fact.recording_id}/audio`)} className="flex-1 h-9" />
           <button onClick={play} className="text-sm bg-blue-600 text-white px-3 py-1.5 hover:bg-blue-700">Play span</button>
         </div>
       )}
