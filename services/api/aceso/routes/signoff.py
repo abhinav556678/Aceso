@@ -60,6 +60,36 @@ def sign_off_encounter(encounter_id: str, req: SignOffRequest):
                         SET status = 'signed', signed_by = %s, signed_at = now(), content_hash = %s
                         WHERE encounter_id = %s
                     """, (req.user_id, content_hash, encounter_id))
+                    
+                    # 3. Detect follow-up tasks from plan and log them as open_loops
+                    import datetime
+                    for plan_item in note_dict.get("plan", []):
+                        text = plan_item.get("text", "").lower()
+                        if "repeat" in text or "recheck" in text or "follow" in text or "due" in text or "refer" in text:
+                            days = 30
+                            if "month" in text:
+                                import re
+                                match = re.search(r'(\d+)\s*month', text)
+                                if match:
+                                    days = int(match.group(1)) * 30
+                                else:
+                                    days = 90
+                            elif "week" in text:
+                                import re
+                                match = re.search(r'(\d+)\s*week', text)
+                                if match:
+                                    days = int(match.group(1)) * 7
+                                else:
+                                    days = 14
+                            
+                            due_date = datetime.date.today() + datetime.timedelta(days=days)
+                            fact_ids = plan_item.get("fact_ids", [])
+                            fact_id = fact_ids[0] if fact_ids else None
+                            
+                            cur.execute("""
+                                INSERT INTO open_loops (patient_id, encounter_id, fact_id, description, due_date)
+                                SELECT patient_id, %s, %s, %s, %s FROM encounters WHERE id = %s
+                            """, (encounter_id, fact_id, plan_item["text"], due_date, encounter_id))
                 
                 # Update encounter
                 cur.execute("""

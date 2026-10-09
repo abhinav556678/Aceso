@@ -88,6 +88,24 @@ def get_trends(patient_id: str, concept: str = "HbA1c"):
             
             return {"labs": labs, "meds": meds, "ranges": ranges}
 
+@router.get("/dashboard/overdue_loops")
+def get_dashboard_overdue_loops():
+    """Dashboard API to fetch all overdue open loops."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT p.full_name, o.description, o.due_date, p.id
+                FROM open_loops_v o
+                JOIN patients p ON p.id = o.patient_id
+                WHERE o.overdue = true
+                ORDER BY o.due_date ASC
+            """)
+            rows = cur.fetchall()
+            return {"overdue_loops": [
+                {"patient_name": r[0], "description": r[1], "due_date": r[2].isoformat() if r[2] else None, "patient_id": r[3]}
+                for r in rows
+            ]}
+
 @router.get("/{patient_id}/summary")
 def get_summary(patient_id: str):
     """Deterministic patient summary card."""
