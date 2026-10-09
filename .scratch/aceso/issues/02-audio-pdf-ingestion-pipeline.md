@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] FastAPI job worker skeleton is running and claiming jobs.
-- [ ] Document perception worker processes PDFs via Azure/Tesseract to create `ocr_blocks` with bounding boxes.
-- [ ] Audio perception worker processes audio via Whisper to create `transcript_segments` with word-level timestamps.
-- [ ] UI reflects the upload and ingestion status via Supabase Realtime.
+- [x] FastAPI job worker skeleton is running and claiming jobs.
+- [x] Document perception worker processes PDFs via Azure/Tesseract to create `ocr_blocks` with bounding boxes.
+- [x] Audio perception worker processes audio via Whisper to create `transcript_segments` with word-level timestamps.
+- [x] UI reflects the upload and ingestion status via Supabase Realtime.
