@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] LLM adapter extracts facts strictly from the provided text segments, citing evidence IDs.
-- [ ] Terminology normalizer maps extracted terms to standard codes (RxNorm, LOINC).
-- [ ] Extracted facts are saved to the database with computed provenance spans/boxes.
-- [ ] UI displays newly extracted facts with their provenance links.
+- [x] LLM adapter extracts facts strictly from the provided text segments, citing evidence IDs.
+- [x] Terminology normalizer maps extracted terms to standard codes (RxNorm, LOINC).
+- [x] Extracted facts are saved to the database with computed provenance spans/boxes.
+- [x] UI displays newly extracted facts with their provenance links.
