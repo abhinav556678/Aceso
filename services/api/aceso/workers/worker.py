@@ -74,42 +74,51 @@ def process_job(conn, job: dict):
             raise ValueError(f"Unknown job type: {job['type']}")
             
         # Fact Extraction
+        from aceso.ai.verifier import verify_facts
         extracted_facts = extract_facts(text_content, source_type)
         
-        # Fact Normalization & DB Saving
+        # Fact Normalization & Conversion to dict
         structured_facts = []
+        for fact in extracted_facts:
+            norm = normalize_term(fact.display, fact.fact_type)
+            fact_dict = fact.model_dump()
+            fact_dict['id'] = str(uuid.uuid4())
+            fact_dict['patient_id'] = job['payload'].get('patient_id', 'unknown')
+            fact_dict['job_id'] = job['id']
+            fact_dict['source_type'] = source_type
+            fact_dict['normalized_code'] = norm.get('code')
+            fact_dict['normalized_system'] = norm.get('system')
+            structured_facts.append(fact_dict)
+            
+        # 3-Way Verification Engine
+        verified_facts = verify_facts(structured_facts, source_type, result)
+        
+        # DB Saving
         with conn.cursor() as cur:
-            for fact in extracted_facts:
-                norm = normalize_term(fact.display, fact.fact_type)
-                
-                fact_dict = fact.model_dump()
-                fact_dict['id'] = str(uuid.uuid4())
-                fact_dict['patient_id'] = job['payload'].get('patient_id', 'unknown')
-                fact_dict['job_id'] = job['id']
-                fact_dict['source_type'] = source_type
-                fact_dict['normalized_code'] = norm.get('code')
-                fact_dict['normalized_system'] = norm.get('system')
-                fact_dict['state'] = 'extracted'
-                
-                structured_facts.append(fact_dict)
+            for fact_dict in verified_facts:
+                # Omissions won't have patient_id and job_id from the verifier
+                if 'patient_id' not in fact_dict:
+                    fact_dict['id'] = str(uuid.uuid4())
+                    fact_dict['patient_id'] = job['payload'].get('patient_id', 'unknown')
+                    fact_dict['job_id'] = job['id']
                 
                 # Insert into DB (mock or real)
                 try:
                     cur.execute("""
-                        INSERT INTO facts (id, patient_id, job_id, fact_type, display, value_num, unit, evidence_text, source_type, normalized_code, normalized_system, state)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO facts (id, patient_id, job_id, fact_type, display, value_num, unit, evidence_text, source_type, normalized_code, normalized_system, state, confidence)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        fact_dict['id'], fact_dict['patient_id'], fact_dict['job_id'], fact_dict['fact_type'], fact_dict['display'],
-                        fact_dict['value_num'], fact_dict['unit'], fact_dict['evidence_text'], fact_dict['source_type'],
-                        fact_dict['normalized_code'], fact_dict['normalized_system'], fact_dict['state']
+                        fact_dict.get('id'), fact_dict.get('patient_id'), fact_dict.get('job_id'), fact_dict.get('fact_type'), fact_dict.get('display'),
+                        fact_dict.get('value_num'), fact_dict.get('unit'), fact_dict.get('evidence_text'), fact_dict.get('source_type'),
+                        fact_dict.get('normalized_code'), fact_dict.get('normalized_system'), fact_dict.get('state', 'needs_attention'), fact_dict.get('confidence', 0.0)
                     ))
                 except Exception as db_err:
                     logger.warning(f"Could not insert fact into DB (table might not exist): {db_err}")
                     conn.rollback()
         
-        result['extracted_facts'] = structured_facts
+        result['extracted_facts'] = verified_facts
         complete_job(conn, job['id'], result)
-        logger.info(f"Completed job {job['id']} with {len(structured_facts)} facts extracted.")
+        logger.info(f"Completed job {job['id']} with {len(verified_facts)} facts extracted/verified.")
     except Exception as e:
         logger.error(f"Failed job {job['id']}: {str(e)}")
         fail_job(conn, job['id'], str(e))
